@@ -1,4 +1,15 @@
 <?php
+require_once __DIR__ . '/../config/database.php';
+require_once BASE_PATH . '/includes/auth.php';
+
+// 🔒 Protection sandbox
+if (!isLoggedIn()) {
+    redirect('/ICEANOTES/login.php?error=' . urlencode('Accès réservé aux utilisateurs connectés.'));
+}
+if (!isSuperviseur()) {
+    redirect('/ICEANOTES/pages/accueil.php');
+}
+
 // arbo.php
 // Génère l'arborescence complète du projet dans _SANDBOX/arbo.txt
 

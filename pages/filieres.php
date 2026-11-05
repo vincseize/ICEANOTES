@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- Toggle actif (inline) ---
+// --- Toggle actif ---
 if (isset($_GET['toggle'])) {
     $pdo->prepare("UPDATE filieres SET actif = 1 - actif WHERE id = ?")->execute([(int)$_GET['toggle']]);
     redirect('/ICEANOTES/pages/filieres.php?ok=toggle');
@@ -47,11 +47,11 @@ if (isset($_GET['delete'])) {
         $pdo->prepare("DELETE FROM filieres WHERE id = ?")->execute([(int)$_GET['delete']]);
         redirect('/ICEANOTES/pages/filieres.php?ok=delete');
     } catch (PDOException $e) {
-        $msg = "Impossible : des promos sont liées à cette filière.";
+        $msg = "Impossible : des promotions ou modules sont liés à cette filière.";
     }
 }
 
-// --- Édition ? ---
+// --- Édition ---
 $editRow = null;
 if (isset($_GET['edit'])) {
     $stmt = $pdo->prepare("SELECT * FROM filieres WHERE id = ?");
@@ -62,8 +62,12 @@ if (isset($_GET['edit'])) {
 // --- Liste ---
 [$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
 
-$sortable = ['nom' => 'f.nom', 'section' => 's.nom', 'actif' => 'f.actif'];
-$orderBy  = $sortable[$sort] ?? 's.nom, f.nom';
+$sortable = [
+    'nom'     => 'f.nom',
+    'section' => 's.nom',
+    'actif'   => 'f.actif',
+];
+$orderBy = $sortable[$sort] ?? 's.nom, f.nom';
 if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
 
 $where  = ['1=1'];
@@ -84,7 +88,8 @@ $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
     SELECT f.*, s.nom AS section,
-           (SELECT COUNT(*) FROM promos p WHERE p.filiere_id = f.id) AS nb_promos
+           (SELECT COUNT(*) FROM promotions p WHERE p.filiere_id = f.id) AS nb_promotions,
+           (SELECT COUNT(*) FROM modules m WHERE m.filiere_id = f.id) AS nb_modules
     FROM filieres f
     JOIN sections s ON s.id = f.section_id
     WHERE $whereSql
@@ -106,12 +111,8 @@ require_once BASE_PATH . '/includes/header.php';
     </div>
 </div>
 
-<?php if ($msg): ?>
-    <div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div>
-<?php endif; ?>
-<?php if (isset($_GET['ok'])): ?>
-    <div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div>
-<?php endif; ?>
+<?php if ($msg): ?><div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div><?php endif; ?>
+<?php if (isset($_GET['ok'])): ?><div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div><?php endif; ?>
 
 <!-- Formulaire ajout / édition -->
 <form method="POST" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
@@ -130,10 +131,8 @@ require_once BASE_PATH . '/includes/header.php';
         <?php endforeach; ?>
     </select>
 
-    <!-- Toggle actif dans le formulaire -->
     <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none px-3 py-2">
-        <input type="checkbox" name="actif" value="1"
-               <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
+        <input type="checkbox" name="actif" value="1" <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
         <?= t('active') ?>
     </label>
@@ -143,25 +142,21 @@ require_once BASE_PATH . '/includes/header.php';
     </button>
 
     <?php if ($editRow): ?>
-        <a href="/ICEANOTES/pages/filieres.php"
-           class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('cancel') ?></a>
+        <a href="/ICEANOTES/pages/filieres.php" class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('cancel') ?></a>
     <?php endif; ?>
 </form>
 
-<!-- Barre recherche + pagination -->
+<!-- Recherche -->
 <form method="GET" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
     <input type="text" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('search')) ?>"
            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
     <select name="per_page" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
         <?php foreach ([10, 20, 50, 100] as $n): ?>
-            <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>>
-                <?= t('per_page', ['n' => $n]) ?>
-            </option>
+            <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>><?= t('per_page', ['n' => $n]) ?></option>
         <?php endforeach; ?>
     </select>
     <button class="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg"><?= t('filter') ?></button>
-    <a href="<?= e(resetLink('filieres.php', $perPage)) ?>"
-       class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
+    <a href="<?= e(resetLink('filieres.php', $perPage)) ?>" class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
 </form>
 
 <!-- Tableau -->
@@ -172,48 +167,42 @@ require_once BASE_PATH . '/includes/header.php';
                 <tr>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('filiere_nom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('section', t('section'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('promos_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= t('promotions_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
             <?php if (empty($filieres)): ?>
-                <tr><td colspan="5" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="6" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($filieres as $f): ?>
                 <tr class="hover:bg-gray-50 transition <?= $f['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
                     <td class="px-4 py-3 font-medium"><?= e($f['nom']) ?></td>
-                    <td class="px-4 py-3 text-gray-600"><?= e($f['section']) ?></td>
-                    <td class="px-4 py-3 text-center"><?= $f['nb_promos'] ?></td>
+                    <td class="px-4 py-3"><?= e($f['section']) ?></td>
+                    <td class="px-4 py-3 text-center"><?= $f['nb_promotions'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= $f['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
-                        <!-- Toggle inline -->
-                        <a href="?toggle=<?= $f['id'] ?>"
-                           title="<?= e($f['actif'] ? t('deactivate') : t('activate')) ?>"
+                        <a href="?toggle=<?= $f['id'] ?>" title="<?= e($f['actif'] ? t('deactivate') : t('activate')) ?>"
                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition
-                                  <?= $f['actif']
-                                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300' ?>">
+                                  <?= $f['actif'] ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-600 hover:bg-gray-300' ?>">
                             <?php if ($f['actif']): ?>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                                 <?= t('active') ?>
                             <?php else: ?>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                                 <?= t('inactive') ?>
                             <?php endif; ?>
                         </a>
                     </td>
                     <td class="px-4 py-3 text-right">
                         <?= actionButtons(
-                            '/ICEANOTES/pages/filieres.php?edit='   . $f['id'],
+                            '/ICEANOTES/pages/filieres.php?edit=' . $f['id'],
                             '/ICEANOTES/pages/filieres.php?delete=' . $f['id'],
                             '/ICEANOTES/pages/filieres.php?toggle=' . $f['id'],
                             (bool)$f['actif'],
                             true,
-                            false  // ← toggle déjà en colonne dédiée, on le cache dans actions
+                            false
                         ) ?>
                     </td>
                 </tr>

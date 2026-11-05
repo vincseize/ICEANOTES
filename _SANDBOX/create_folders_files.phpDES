@@ -1,0 +1,67 @@
+<?php
+// create_folders_files.php
+// Crée automatiquement tous les dossiers et fichiers du projet ICEANOTES.
+
+$root = dirname(__DIR__); // Racine du projet (un niveau au-dessus de _SANDBOX)
+
+// Liste des dossiers à créer
+$dirs = [
+    'config',
+    'includes',
+    'pages',
+    'actions',
+    'assets/css',
+    'database',
+    '_SANDBOX'
+];
+
+echo "<h3>Création des dossiers...</h3>";
+foreach ($dirs as $dir) {
+    $path = $root . '/' . $dir;
+    if (!is_dir($path)) {
+        mkdir($path, 0777, true);
+        echo "Dossier créé : <code>$dir/</code><br>";
+    } else {
+        echo "Dossier déjà existant : <code>$dir/</code><br>";
+    }
+}
+
+// Liste des fichiers à initialiser
+$files = [
+    'index.php',
+    'login.php',
+    'logout.php',
+    'config/database.php',
+    'config/init_db.php',
+    'includes/auth.php',
+    'includes/header.php',
+    'includes/footer.php',
+    'pages/accueil.php',
+    'pages/professeurs.php',
+    'pages/matieres.php',
+    'pages/filieres.php',
+    'pages/etudiants.php',
+    'pages/notes.php',
+    'actions/login_action.php',
+    'actions/ajouter_etudiant.php',
+    'actions/ajouter_matiere.php',
+    'actions/ajouter_note.php',
+    'actions/supprimer_note.php',
+    'assets/css/style.css'
+];
+
+echo "<h3>Création des fichiers...</h3>";
+foreach ($files as $file) {
+    $filePath = $root . '/' . $file;
+    if (!file_exists($filePath)) {
+        // Crée un fichier avec un ensoleillement de base PHP ou vide pour le CSS
+        $content = (str_ends_with($file, '.css')) ? "/* Style CSS global */\n" : "<?php\n// Fichier : $file\n";
+        file_put_contents($filePath, $content);
+        echo "Fichier créé : <code>$file</code><br>";
+    } else {
+        echo "Fichier déjà existant : <code>$file</code><br>";
+    }
+}
+
+echo "<hr><p><strong>Initialisation terminée avec succès !</strong></p>";
+?>

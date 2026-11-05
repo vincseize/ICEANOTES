@@ -146,17 +146,18 @@ require_once BASE_PATH . '/includes/header.php';
     <?php endif; ?>
 </form>
 
-<!-- Recherche -->
-<form method="GET" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
-    <input type="text" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('search')) ?>"
+<!-- Filtres en live -->
+<form method="GET" id="filterForm" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
+    <input type="text" name="q" id="searchInput" value="<?= e($search) ?>"
+           placeholder="<?= e(t('search')) ?>"
            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
-    <select name="per_page" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <?php foreach ([10, 20, 50, 100] as $n): ?>
-            <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>><?= t('per_page', ['n' => $n]) ?></option>
-        <?php endforeach; ?>
-    </select>
-    <button class="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg"><?= t('filter') ?></button>
-    <a href="<?= e(resetLink('filieres.php', $perPage)) ?>" class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
+
+    <?php if ($search !== ''): ?>
+        <a href="/ICEANOTES/pages/filieres.php?per_page=<?= $perPage ?>"
+           class="text-sm text-red-500 hover:text-red-700 hover:underline self-center px-3 whitespace-nowrap">
+            ✕ <?= t('reset') ?>
+        </a>
+    <?php endif; ?>
 </form>
 
 <!-- Tableau -->
@@ -212,6 +213,91 @@ require_once BASE_PATH . '/includes/header.php';
     </div>
 </div>
 
-<?= renderPagination($page, $perPage, $total) ?>
+<!-- Barre du bas : per_page + pagination -->
+<?php
+    $pages = max(1, (int)ceil($total / $perPage));
+    $buildPageUrl = function (int $p) use ($perPage) {
+        $params = array_merge($_GET, ['page' => $p, 'per_page' => $perPage]);
+        return '?' . http_build_query($params);
+    };
+    $buildPerPageUrl = function (int $n) {
+        $params = array_merge($_GET, ['per_page' => $n, 'page' => 1]);
+        return '?' . http_build_query($params);
+    };
+?>
+
+<div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div>
+        <select id="perPageSelect"
+                class="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <?php foreach ([10, 20, 50, 100] as $n): ?>
+                <option value="<?= e($buildPerPageUrl($n)) ?>" <?= $perPage == $n ? 'selected' : '' ?>>
+                    <?= $n ?> / page
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
+    <?php if ($pages > 1): ?>
+        <div class="flex flex-wrap items-center gap-1">
+            <?php if ($page > 1): ?>
+                <a href="<?= e($buildPageUrl($page - 1)) ?>"
+                   class="px-3 py-1.5 rounded-lg text-sm bg-white text-gray-700 hover:bg-gray-100 border border-gray-300">‹</a>
+            <?php endif; ?>
+
+            <?php for ($i = 1; $i <= $pages; $i++): ?>
+                <?php if ($i === 1 || $i === $pages || abs($i - $page) <= 2): ?>
+                    <a href="<?= e($buildPageUrl($i)) ?>"
+                       class="px-3 py-1.5 rounded-lg text-sm
+                              <?= $i === $page
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300' ?>">
+                        <?= $i ?>
+                    </a>
+                <?php elseif (abs($i - $page) === 3): ?>
+                    <span class="px-2 text-gray-400">…</span>
+                <?php endif; ?>
+            <?php endfor; ?>
+
+            <?php if ($page < $pages): ?>
+                <a href="<?= e($buildPageUrl($page + 1)) ?>"
+                   class="px-3 py-1.5 rounded-lg text-sm bg-white text-gray-700 hover:bg-gray-100 border border-gray-300">›</a>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+</div>
+
+<script>
+(function () {
+    const search  = document.getElementById('searchInput');
+    const perPage = document.getElementById('perPageSelect');
+
+    let searchTimeout = null;
+
+    // Recherche live
+    if (search) {
+        search.addEventListener('input', function () {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function () {
+                const url = new URL(window.location.href);
+                if (search.value === '') {
+                    url.searchParams.delete('q');
+                } else {
+                    url.searchParams.set('q', search.value);
+                }
+                url.searchParams.delete('page');
+                window.location.href = url.toString();
+            }, 400);
+        });
+    }
+
+    // per_page
+    if (perPage) {
+        perPage.addEventListener('change', function () {
+            window.location.href = this.value;
+        });
+    }
+})();
+</script>
 
 <?php require_once BASE_PATH . '/includes/footer.php'; ?>

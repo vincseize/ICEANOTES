@@ -2,7 +2,7 @@
 // includes/auth.php
 require_once BASE_PATH . '/config/database.php';
 
-const SESSION_LIFETIME_IDLE = 3600; // 1h d'inactivité
+const SESSION_LIFETIME_IDLE = 3600;
 
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
@@ -14,9 +14,6 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-/**
- * Reconnexion auto via remember_token
- */
 function tryRememberLogin(): void
 {
     if (isset($_SESSION['user_id'])) return;
@@ -41,35 +38,25 @@ function tryRememberLogin(): void
     $_SESSION['last_activity'] = time();
     $_SESSION['remember']      = true;
 }
-
 tryRememberLogin();
 
-/**
- * Vérifie si connecté + timeout d'inactivité 1h (sauf remember)
- */
 function isLoggedIn(): bool
 {
     if (!isset($_SESSION['user_id'])) return false;
-
     if (!empty($_SESSION['remember'])) {
         $_SESSION['last_activity'] = time();
         return true;
     }
-
     $last = $_SESSION['last_activity'] ?? 0;
     if (time() - $last > SESSION_LIFETIME_IDLE) {
         session_unset();
         session_destroy();
         return false;
     }
-
     $_SESSION['last_activity'] = time();
     return true;
 }
 
-/**
- * Redirige vers login si non connecté
- */
 function requireLogin(): void
 {
     if (!isLoggedIn()) {
@@ -78,9 +65,6 @@ function requireLogin(): void
     }
 }
 
-/**
- * Utilisateur courant (avec type_label)
- */
 function currentUser(): ?array
 {
     if (!isLoggedIn()) return null;
@@ -99,18 +83,11 @@ function currentUser(): ?array
     return $cache;
 }
 
-/**
- * Est-ce que l'utilisateur courant est admin ?
- */
 function isAdmin(): bool
 {
-    if (!isLoggedIn()) return false;
-    return ($_SESSION['user_type'] ?? '') === 'admin';
+    return isLoggedIn() && (($_SESSION['user_type'] ?? '') === 'admin');
 }
 
-/**
- * Bloque l'accès aux pages admin
- */
 function requireAdmin(): void
 {
     if (!isAdmin()) {

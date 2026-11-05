@@ -91,32 +91,34 @@ $promos   = $pdo->query("
 
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
     <div>
-        <h1 class="text-2xl font-bold text-gray-800"><?= $isAdmin ? 'Toutes les notes' : 'Mes notes' ?></h1>
-        <p class="text-sm text-gray-500"><?= $total ?> note<?= $total > 1 ? 's' : '' ?></p>
+        <h1 class="text-2xl font-bold text-gray-800">
+            <?= $isAdmin ? t('accueil_title') : t('accueil_title_prof') ?>
+        </h1>
+        <p class="text-sm text-gray-500"><?= t('notes_total', ['n' => $total]) ?></p>
     </div>
     <a href="/ICEANOTES/pages/notes.php"
        class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg text-center">
-        + Ajouter une note
+        <?= t('add_note') ?>
     </a>
 </div>
 
 <form method="GET" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row gap-3">
-    <input type="text" name="q" value="<?= e($search) ?>" placeholder="Rechercher étudiant, matière, promo…"
+    <input type="text" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('search')) ?>"
            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
     <select name="filiere" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value="">Toutes les filières</option>
+        <option value=""><?= t('filiere') ?></option>
         <?php foreach ($filieres as $f): ?>
             <option value="<?= $f['id'] ?>" <?= $filterFiliere == $f['id'] ? 'selected' : '' ?>><?= e($f['nom']) ?></option>
         <?php endforeach; ?>
     </select>
     <select name="diplome" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value="">Tous les diplômes</option>
+        <option value=""><?= t('diplome') ?></option>
         <?php foreach ($diplomes as $d): ?>
             <option value="<?= $d['id'] ?>" <?= $filterDiplome == $d['id'] ? 'selected' : '' ?>><?= e($d['nom']) ?></option>
         <?php endforeach; ?>
     </select>
     <select name="promo" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value="">Toutes les promos</option>
+        <option value=""><?= t('promo') ?></option>
         <?php foreach ($promos as $p): ?>
             <option value="<?= $p['id'] ?>" <?= $filterPromo == $p['id'] ? 'selected' : '' ?>>
                 <?= e($p['nom'] . ' (' . $p['annee'] . ')') ?>
@@ -125,12 +127,12 @@ $promos   = $pdo->query("
     </select>
     <select name="per_page" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
         <?php foreach ([10, 20, 50, 100] as $n): ?>
-            <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>><?= $n ?> / page</option>
+            <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>><?= t('per_page', ['n'=>$n]) ?></option>
         <?php endforeach; ?>
     </select>
-    <button class="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Filtrer</button>
+    <button class="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg"><?= t('filter') ?></button>
     <a href="<?= e(resetLink('accueil.php', $perPage)) ?>"
-       class="text-sm text-gray-500 px-3 py-2 hover:underline self-center">Réinitialiser</a>
+       class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
 </form>
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -138,20 +140,21 @@ $promos   = $pdo->query("
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
-                    <th class="text-left px-4 py-3"><?= sortLink('etu', 'Étudiant', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('promo', 'Promo', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('filiere', 'Filière', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('diplome', 'Diplôme', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('matiere', 'Matière', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3">Prof</th>
-                    <th class="text-center px-4 py-3"><?= sortLink('type', 'Type', $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('valeur', 'Note', $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('date', 'Date', $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('etu', t('etudiant'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('diplome', t('diplome'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('matiere', t('matiere'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= t('professeur') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('type', t('type'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('valeur', t('note'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('date', t('date'), $sort, $dir) ?></th>
+                    <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
             <?php if (empty($notes)): ?>
-                <tr><td colspan="9" class="text-center text-gray-400 py-8">Aucune note trouvée.</td></tr>
+                <tr><td colspan="10" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($notes as $n): ?>
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_nom'] . ' ' . $n['etu_prenom']) ?></td>
@@ -169,6 +172,16 @@ $promos   = $pdo->query("
                         <?= number_format((float)$n['valeur'], 1) ?>/20
                     </td>
                     <td class="px-4 py-3 text-gray-500"><?= date('d/m/Y H:i', strtotime($n['date_saisie'])) ?></td>
+                    <td class="px-4 py-3 text-right">
+                        <?= actionButtons(
+                            '/ICEANOTES/pages/notes.php?edit='   . $n['id'],
+                            '/ICEANOTES/pages/notes.php?delete=' . $n['id'],
+                            '',
+                            true,
+                            true,
+                            false
+                        ) ?>
+                    </td>
                 </tr>
             <?php endforeach; endif; ?>
             </tbody>

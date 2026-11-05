@@ -70,7 +70,7 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                     </span>
                 </a>
 
-                <div class="hidden xl:flex gap-3 text-sm">
+                <div class="hidden xl:flex gap-3 text-sm items-center">
                     <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
 
                     <?php if ($isSuperviseur): ?>
@@ -90,11 +90,18 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
 
                     <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+
+                        <span class="text-gray-300 select-none">|</span>
+
+                        <a href="/ICEANOTES/_SANDBOX/"
+                           class="text-gray-500 hover:text-purple-600 transition text-xs font-mono uppercase tracking-wider">
+                            SANDBOX
+                        </a>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 sm:gap-3">
                 <div class="flex items-center gap-2" title="<?= e($user['prenom'] . ' ' . $user['nom'] . ' — ' . $user['email']) ?>">
                     <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-xs font-medium <?= $typeBadgeColor ?>">
                         <?= e($typeBadgeLabel) ?>
@@ -104,14 +111,21 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                     </div>
                 </div>
 
-                <a href="/ICEANOTES/logout.php" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg"><?= t('logout') ?></a>
+                <!-- Déconnexion : icône seule partout -->
+                <a href="/ICEANOTES/logout.php"
+                   title="<?= e(t('logout')) ?>"
+                   class="bg-red-500 hover:bg-red-600 text-white px-2 py-1.5 rounded-lg transition flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                </a>
 
                 <div class="relative" id="langDropdownWrapper">
                     <button type="button" id="langDropdownBtn" onclick="toggleLangDropdown()"
-                            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
+                            class="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
                         <span class="text-lg leading-none"><?= $currentFlag[0] ?></span>
-                        <span class="text-xs font-semibold text-gray-700"><?= $currentFlag[2] ?></span>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <span class="hidden sm:inline text-xs font-semibold text-gray-700"><?= $currentFlag[2] ?></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="hidden sm:block h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
                     </button>

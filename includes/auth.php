@@ -1,6 +1,6 @@
 <?php
 // includes/auth.php
-require_once BASE_PATH . '/config/database.php';
+require_once __DIR__ . '/../config/database.php';  // ✅ corrige le crash BASE_PATH
 
 const SESSION_LIFETIME_IDLE = 3600;
 

@@ -1,128 +1,151 @@
 <?php
-// pages/accueil.php
 require_once __DIR__ . '/../config/database.php';
-require_once BASE_PATH . '/includes/header.php';
-
-$pdo     = getDB();
-$me      = currentUser();
+require_once BASE_PATH . '/includes/auth.php';
+requireLogin();
 $isAdmin = isAdmin();
-$myId    = (int)$me['id'];
+
+$pdo = getDB();
+$msg = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
+    $action = $_POST['action'] ?? '';
+    if (in_array($action, ['add', 'edit'], true)) {
+        $nom    = trim($_POST['nom'] ?? '');
+        $prenom = trim($_POST['prenom'] ?? '');
+        $promo  = (int)($_POST['promo_id'] ?? 0);
+        $actif  = isset($_POST['actif']) ? 1 : 0;
+        $id     = (int)($_POST['id'] ?? 0);
+
+        if ($nom !== '' && $prenom !== '' && $promo > 0) {
+            if ($action === 'add') {
+                $pdo->prepare("INSERT INTO etudiants (nom, prenom, promo_id, actif) VALUES (?, ?, ?, ?)")
+                    ->execute([$nom, $prenom, $promo, $actif]);
+                redirect('/ICEANOTES/pages/etudiants.php?ok=add');
+            } else {
+                $pdo->prepare("UPDATE etudiants SET nom=?, prenom=?, promo_id=?, actif=? WHERE id=?")
+                    ->execute([$nom, $prenom, $promo, $actif, $id]);
+                redirect('/ICEANOTES/pages/etudiants.php?ok=edit');
+            }
+        }
+    }
+}
+
+if (isset($_GET['toggle']) && $isAdmin) {
+    $pdo->prepare("UPDATE etudiants SET actif = 1 - actif WHERE id = ?")->execute([(int)$_GET['toggle']]);
+    redirect('/ICEANOTES/pages/etudiants.php?ok=toggle');
+}
+if (isset($_GET['delete']) && $isAdmin) {
+    try {
+        $pdo->prepare("DELETE FROM etudiants WHERE id = ?")->execute([(int)$_GET['delete']]);
+        redirect('/ICEANOTES/pages/etudiants.php?ok=delete');
+    } catch (PDOException $e) { $msg = "Impossible : notes liées."; }
+}
+
+$editRow = null;
+if (isset($_GET['edit']) && $isAdmin) {
+    $stmt = $pdo->prepare("SELECT * FROM etudiants WHERE id = ?");
+    $stmt->execute([(int)$_GET['edit']]);
+    $editRow = $stmt->fetch() ?: null;
+}
 
 [$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
+$filterPromo = (int)($_GET['promo'] ?? 0);
 
 $sortable = [
-    'etu'     => 'e.nom, e.prenom',
-    'promo'   => 'p.annee DESC, p.nom',
-    'filiere' => 'f.nom',
-    'diplome' => 'd.ordre, d.nom',
-    'matiere' => 'm.nom',
-    'type'    => 'n.type_note',
-    'valeur'  => 'n.valeur',
-    'date'    => 'n.date_saisie',
+    'nom' => 'e.nom, e.prenom', 'prenom' => 'e.prenom, e.nom',
+    'promo' => 'p.annee DESC, p.nom', 'filiere' => 'f.nom', 'diplome' => 'd.ordre, d.nom',
+    'actif' => 'e.actif'
 ];
-$orderBy = $sortable[$sort] ?? 'n.date_saisie DESC';
+$orderBy = $sortable[$sort] ?? 'p.annee DESC, e.nom, e.prenom';
 if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
-else $orderBy = 'n.date_saisie DESC';
 
-$filterFiliere = (int)($_GET['filiere'] ?? 0);
-$filterDiplome = (int)($_GET['diplome'] ?? 0);
-$filterPromo   = (int)($_GET['promo'] ?? 0);
-
-$where  = ['1=1'];
-$params = [];
-if (!$isAdmin) {
-    $where[]  = "m.professeur_id = ?";
-    $params[] = $myId;
-}
+$where = ['1=1']; $params = [];
 if ($search !== '') {
-    $where[] = "(e.nom LIKE ? OR e.prenom LIKE ? OR m.nom LIKE ? OR p.nom LIKE ?)";
+    $where[] = "(e.nom LIKE ? OR e.prenom LIKE ? OR p.nom LIKE ? OR f.nom LIKE ?)";
     $like = "%$search%";
     array_push($params, $like, $like, $like, $like);
 }
-if ($filterFiliere) { $where[] = "f.id = ?"; $params[] = $filterFiliere; }
-if ($filterDiplome) { $where[] = "d.id = ?"; $params[] = $filterDiplome; }
-if ($filterPromo)   { $where[] = "p.id = ?"; $params[] = $filterPromo; }
+if ($filterPromo > 0) { $where[] = "e.promo_id = ?"; $params[] = $filterPromo; }
 $whereSql = implode(' AND ', $where);
 
 $stmt = $pdo->prepare("
-    SELECT COUNT(*) FROM notes n
-    JOIN etudiants e ON e.id = n.etudiant_id
-    JOIN promos p    ON p.id = e.promo_id
-    JOIN filieres f  ON f.id = p.filiere_id
-    JOIN diplomes d  ON d.id = p.diplome_id
-    JOIN matieres m  ON m.id = n.matiere_id
+    SELECT COUNT(*) FROM etudiants e
+    JOIN promos p ON p.id = e.promo_id
+    JOIN filieres f ON f.id = p.filiere_id
+    JOIN diplomes d ON d.id = p.diplome_id
     WHERE $whereSql
 ");
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
-    SELECT n.id, n.type_note, n.valeur, n.date_saisie,
-           e.nom AS etu_nom, e.prenom AS etu_prenom,
-           p.nom AS promo_nom, p.annee AS promo_annee,
-           f.nom AS filiere,
-           d.nom AS diplome,
-           m.nom AS matiere,
-           u.nom AS prof_nom, u.prenom AS prof_prenom
-    FROM notes n
-    JOIN etudiants e ON e.id = n.etudiant_id
-    JOIN promos p    ON p.id = e.promo_id
-    JOIN filieres f  ON f.id = p.filiere_id
-    JOIN diplomes d  ON d.id = p.diplome_id
-    JOIN matieres m  ON m.id = n.matiere_id
-    JOIN users u     ON u.id = m.professeur_id
-    WHERE $whereSql
-    ORDER BY $orderBy
-    LIMIT $perPage OFFSET $offset
-");
-$stmt->execute($params);
-$notes = $stmt->fetchAll();
-
-$filieres = $pdo->query("SELECT * FROM filieres ORDER BY nom")->fetchAll();
-$diplomes = $pdo->query("SELECT * FROM diplomes ORDER BY ordre, nom")->fetchAll();
-$promos   = $pdo->query("
-    SELECT p.*, f.nom AS filiere, d.nom AS diplome
-    FROM promos p
+    SELECT e.*, p.nom AS promo_nom, p.annee AS promo_annee,
+           f.nom AS filiere, d.nom AS diplome
+    FROM etudiants e
+    JOIN promos p ON p.id = e.promo_id
     JOIN filieres f ON f.id = p.filiere_id
     JOIN diplomes d ON d.id = p.diplome_id
-    ORDER BY p.annee DESC, p.nom
+    WHERE $whereSql ORDER BY $orderBy LIMIT $perPage OFFSET $offset
+");
+$stmt->execute($params);
+$etudiants = $stmt->fetchAll();
+
+$promos = $pdo->query("
+    SELECT p.*, f.nom AS filiere, d.nom AS diplome
+    FROM promos p JOIN filieres f ON f.id = p.filiere_id JOIN diplomes d ON d.id = p.diplome_id
+    ORDER BY p.annee DESC, f.nom, d.ordre
 ")->fetchAll();
+
+require_once BASE_PATH . '/includes/header.php';
 ?>
 
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
     <div>
-        <h1 class="text-2xl font-bold text-gray-800">
-            <?= $isAdmin ? t('accueil_title') : t('accueil_title_prof') ?>
-        </h1>
-        <p class="text-sm text-gray-500"><?= t('notes_total', ['n' => $total]) ?></p>
+        <h1 class="text-2xl font-bold text-gray-800"><?= t('etudiants_title') ?></h1>
+        <p class="text-sm text-gray-500"><?= t('etudiants_page_count', ['n' => $total]) ?></p>
     </div>
-    <a href="/ICEANOTES/pages/notes.php"
-       class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg text-center">
-        <?= t('add_note') ?>
-    </a>
 </div>
 
-<form method="GET" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row gap-3">
+<?php if ($msg): ?><div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div><?php endif; ?>
+<?php if (isset($_GET['ok'])): ?><div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div><?php endif; ?>
+
+<?php if ($isAdmin): ?>
+<form method="POST" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 grid sm:grid-cols-12 gap-3 items-start">
+    <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
+    <?php if ($editRow): ?><input type="hidden" name="id" value="<?= $editRow['id'] ?>"><?php endif; ?>
+    <input type="text" name="prenom" required placeholder="<?= e(t('etudiant_prenom')) ?>" value="<?= $editRow ? e($editRow['prenom']) : '' ?>"
+           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-3">
+    <input type="text" name="nom" required placeholder="<?= e(t('etudiant_nom')) ?>" value="<?= $editRow ? e($editRow['nom']) : '' ?>"
+           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-3">
+    <select name="promo_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-3">
+        <option value="">— <?= t('promo') ?> —</option>
+        <?php foreach ($promos as $p): ?>
+            <option value="<?= $p['id'] ?>" <?= $editRow && $editRow['promo_id'] == $p['id'] ? 'selected' : '' ?>>
+                <?= e($p['nom'] . ' — ' . $p['annee']) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none px-3 py-2 sm:col-span-2">
+        <input type="checkbox" name="actif" value="1" <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
+               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+        <?= t('active') ?>
+    </label>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg sm:col-span-1">
+        <?= $editRow ? t('save') : t('add') ?>
+    </button>
+    <?php if ($editRow): ?>
+        <a href="/ICEANOTES/pages/etudiants.php" class="text-sm text-gray-500 px-3 py-2 hover:underline text-center sm:col-span-12"><?= t('cancel') ?></a>
+    <?php endif; ?>
+</form>
+<?php endif; ?>
+
+<form method="GET" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
     <input type="text" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('search')) ?>"
            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
-    <select name="filiere" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('filiere') ?></option>
-        <?php foreach ($filieres as $f): ?>
-            <option value="<?= $f['id'] ?>" <?= $filterFiliere == $f['id'] ? 'selected' : '' ?>><?= e($f['nom']) ?></option>
-        <?php endforeach; ?>
-    </select>
-    <select name="diplome" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('diplome') ?></option>
-        <?php foreach ($diplomes as $d): ?>
-            <option value="<?= $d['id'] ?>" <?= $filterDiplome == $d['id'] ? 'selected' : '' ?>><?= e($d['nom']) ?></option>
-        <?php endforeach; ?>
-    </select>
     <select name="promo" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('promo') ?></option>
+        <option value="">— <?= t('promo') ?> —</option>
         <?php foreach ($promos as $p): ?>
-            <option value="<?= $p['id'] ?>" <?= $filterPromo == $p['id'] ? 'selected' : '' ?>>
-                <?= e($p['nom'] . ' (' . $p['annee'] . ')') ?>
-            </option>
+            <option value="<?= $p['id'] ?>" <?= $filterPromo == $p['id'] ? 'selected' : '' ?>><?= e($p['nom'] . ' (' . $p['annee'] . ')') ?></option>
         <?php endforeach; ?>
     </select>
     <select name="per_page" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -131,8 +154,7 @@ $promos   = $pdo->query("
         <?php endforeach; ?>
     </select>
     <button class="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg"><?= t('filter') ?></button>
-    <a href="<?= e(resetLink('accueil.php', $perPage)) ?>"
-       class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
+    <a href="<?= e(resetLink('etudiants.php', $perPage)) ?>" class="text-sm text-gray-500 px-3 py-2 hover:underline self-center"><?= t('reset') ?></a>
 </form>
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -140,47 +162,57 @@ $promos   = $pdo->query("
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
-                    <th class="text-left px-4 py-3"><?= sortLink('etu', t('etudiant'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('prenom', t('etudiant_prenom'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('nom', t('etudiant_nom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('diplome', t('diplome'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('matiere', t('matiere'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= t('professeur') ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('type', t('type'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('valeur', t('note'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('date', t('date'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-            <?php if (empty($notes)): ?>
-                <tr><td colspan="10" class="text-center text-gray-400 py-8">—</td></tr>
-            <?php else: foreach ($notes as $n): ?>
-                <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_nom'] . ' ' . $n['etu_prenom']) ?></td>
-                    <td class="px-4 py-3 text-gray-600"><?= e($n['promo_nom'] . ' (' . $n['promo_annee'] . ')') ?></td>
-                    <td class="px-4 py-3 text-gray-600"><?= e($n['filiere']) ?></td>
-                    <td class="px-4 py-3">
-                        <span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($n['diplome']) ?></span>
-                    </td>
-                    <td class="px-4 py-3"><?= e($n['matiere']) ?></td>
-                    <td class="px-4 py-3 text-gray-500"><?= e($n['prof_nom'] . ' ' . $n['prof_prenom']) ?></td>
+            <?php if (empty($etudiants)): ?>
+                <tr><td colspan="7" class="text-center text-gray-400 py-8">—</td></tr>
+            <?php else: foreach ($etudiants as $et): ?>
+                <tr class="hover:bg-gray-50 transition <?= $et['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                    <td class="px-4 py-3 font-medium"><?= e($et['prenom']) ?></td>
+                    <td class="px-4 py-3"><?= e($et['nom']) ?></td>
+                    <td class="px-4 py-3 text-gray-600"><?= e($et['promo_nom'] . ' (' . $et['promo_annee'] . ')') ?></td>
+                    <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= e($et['filiere']) ?></span></td>
+                    <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($et['diplome']) ?></span></td>
                     <td class="px-4 py-3 text-center">
-                        <span class="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700"><?= e($n['type_note']) ?></span>
+                        <?php if ($isAdmin): ?>
+                            <a href="?toggle=<?= $et['id'] ?>" title="<?= e($et['actif'] ? t('deactivate') : t('activate')) ?>"
+                               class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition
+                                      <?= $et['actif'] ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-600 hover:bg-gray-300' ?>">
+                                <?php if ($et['actif']): ?>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                    <?= t('active') ?>
+                                <?php else: ?>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    <?= t('inactive') ?>
+                                <?php endif; ?>
+                            </a>
+                        <?php else: ?>
+                            <span class="inline-block px-2 py-0.5 rounded text-xs <?= $et['actif'] ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600' ?>">
+                                <?= $et['actif'] ? t('active') : t('inactive') ?>
+                            </span>
+                        <?php endif; ?>
                     </td>
-                    <td class="px-4 py-3 text-center font-bold <?= $n['valeur'] >= 10 ? 'text-green-600' : 'text-red-600' ?>">
-                        <?= number_format((float)$n['valeur'], 1) ?>/20
-                    </td>
-                    <td class="px-4 py-3 text-gray-500"><?= date('d/m/Y H:i', strtotime($n['date_saisie'])) ?></td>
                     <td class="px-4 py-3 text-right">
-                        <?= actionButtons(
-                            '/ICEANOTES/pages/notes.php?edit='   . $n['id'],
-                            '/ICEANOTES/pages/notes.php?delete=' . $n['id'],
-                            '',
-                            true,
-                            true,
-                            false
-                        ) ?>
+                        <?php if ($isAdmin): ?>
+                            <?= actionButtons(
+                                '/ICEANOTES/pages/etudiants.php?edit=' . $et['id'],
+                                '/ICEANOTES/pages/etudiants.php?delete=' . $et['id'],
+                                '/ICEANOTES/pages/etudiants.php?toggle=' . $et['id'],
+                                (bool)$et['actif'],
+                                true,
+                                false
+                            ) ?>
+                        <?php else: ?>
+                            <span class="text-xs text-gray-400">—</span>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

@@ -16,7 +16,7 @@ $sortable = [
     'promo'   => 'p.annee, p.promo',
     'filiere' => 'f.nom',
     'module'  => 'm.nom',
-    'type'    => 'n.type_note',
+    'type'    => 'nt.ordre, nt.nom',
     'valeur'  => 'n.valeur',
     'date'    => 'n.date_saisie',
 ];
@@ -27,6 +27,7 @@ else $orderBy = 'n.date_saisie DESC';
 $filterFiliere = (int)($_GET['filiere'] ?? 0);
 $filterNiveau  = trim($_GET['niveau'] ?? '');
 $filterPromo   = (int)($_GET['promo'] ?? 0);
+$filterType    = (int)($_GET['type'] ?? 0);
 
 $where = ['1=1']; $params = [];
 if (!$isSuperviseur) { $where[] = "m.professeur_id = ?"; $params[] = $myId; }
@@ -38,6 +39,7 @@ if ($search !== '') {
 if ($filterFiliere) { $where[] = "f.id = ?"; $params[] = $filterFiliere; }
 if ($filterNiveau)  { $where[] = "p.nom = ?"; $params[] = $filterNiveau; }
 if ($filterPromo)   { $where[] = "p.id = ?"; $params[] = $filterPromo; }
+if ($filterType)    { $where[] = "nt.id = ?"; $params[] = $filterType; }
 $whereSql = implode(' AND ', $where);
 
 $stmt = $pdo->prepare("
@@ -46,23 +48,26 @@ $stmt = $pdo->prepare("
     JOIN promotions p ON p.id = e.promotion_id
     JOIN filieres f ON f.id = p.filiere_id
     JOIN modules m ON m.id = n.module_id
+    JOIN note_types nt ON nt.id = n.note_type_id
     WHERE $whereSql
 ");
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
-    SELECT n.id, n.type_note, n.valeur, n.date_saisie,
+    SELECT n.id, n.valeur, n.date_saisie,
            e.nom AS etu_nom, e.prenom AS etu_prenom,
            p.nom AS niveau, p.promo, p.annee,
            f.nom AS filiere,
            m.nom AS module,
+           nt.nom AS type_nom, nt.sur AS type_sur, nt.coef AS type_coef,
            u.nom AS prof_nom, u.prenom AS prof_prenom
     FROM notes n
     JOIN etudiants e ON e.id = n.etudiant_id
     JOIN promotions p ON p.id = e.promotion_id
     JOIN filieres f ON f.id = p.filiere_id
     JOIN modules m ON m.id = n.module_id
+    JOIN note_types nt ON nt.id = n.note_type_id
     JOIN users u ON u.id = m.professeur_id
     WHERE $whereSql
     ORDER BY $orderBy
@@ -74,10 +79,10 @@ $notes = $stmt->fetchAll();
 $filieres  = $pdo->query("SELECT * FROM filieres ORDER BY nom")->fetchAll();
 $niveaux   = ['L1', 'L2', 'L3', 'Master'];
 $promotions = $pdo->query("
-    SELECT p.*, f.nom AS filiere
-    FROM promotions p JOIN filieres f ON f.id = p.filiere_id
-    ORDER BY p.ordre, f.nom, p.annee
+    SELECT p.*, f.nom AS filiere FROM promotions p JOIN filieres f ON f.id = p.filiere_id
+    WHERE p.actif = 1 ORDER BY p.ordre, f.nom, p.annee
 ")->fetchAll();
+$noteTypes = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
 ?>
 
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
@@ -116,6 +121,14 @@ $promotions = $pdo->query("
             </option>
         <?php endforeach; ?>
     </select>
+    <select name="type" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <option value=""><?= t('type') ?></option>
+        <?php foreach ($noteTypes as $tp): ?>
+            <option value="<?= $tp['id'] ?>" <?= $filterType == $tp['id'] ? 'selected' : '' ?>>
+                <?= e($tp['nom']) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
     <select name="per_page" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
         <?php foreach ([10, 20, 50, 100] as $n): ?>
             <option value="<?= $n ?>" <?= $perPage == $n ? 'selected' : '' ?>><?= t('per_page', ['n' => $n]) ?></option>
@@ -145,16 +158,27 @@ $promotions = $pdo->query("
             <?php if (empty($notes)): ?>
                 <tr><td colspan="9" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($notes as $n): ?>
+                <?php
+                    $sur20 = ((float)$n['valeur'] / (float)$n['type_sur']) * 20;
+                    $ok = $sur20 >= 10;
+                ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_nom'] . ' ' . $n['etu_prenom']) ?></td>
+                    <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_prenom'] . ' ' . $n['etu_nom']) ?></td>
                     <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($n['niveau']) ?></span></td>
                     <td class="px-4 py-3"><?= $n['promo'] ? e($n['promo']) : '<span class="text-gray-400 italic text-xs">(sans promo)</span>' ?></td>
                     <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= e($n['filiere']) ?></span></td>
                     <td class="px-4 py-3"><?= e($n['module']) ?></td>
-                    <td class="px-4 py-3 text-gray-500"><?= e($n['prof_nom'] . ' ' . $n['prof_prenom']) ?></td>
-                    <td class="px-4 py-3 text-center"><span class="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700"><?= e($n['type_note']) ?></span></td>
-                    <td class="px-4 py-3 text-center font-bold <?= $n['valeur'] >= 10 ? 'text-green-600' : 'text-red-600' ?>"><?= number_format((float)$n['valeur'], 1) ?>/20</td>
-                    <td class="px-4 py-3 text-gray-500"><?= date('d/m/Y H:i', strtotime($n['date_saisie'])) ?></td>
+                    <td class="px-4 py-3 text-gray-500"><?= e($n['prof_prenom'] . ' ' . $n['prof_nom']) ?></td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700"><?= e($n['type_nom']) ?></span>
+                    </td>
+                    <td class="px-4 py-3 text-center font-bold <?= $ok ? 'text-green-600' : 'text-red-600' ?>">
+                        <?= number_format((float)$n['valeur'], 1) ?> / <?= (float)$n['type_sur'] ?>
+                        <?php if ((float)$n['type_coef'] != 1): ?>
+                            <span class="text-xs text-gray-400 block">×<?= (float)$n['type_coef'] ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500 text-xs"><?= date('d/m/Y H:i', strtotime($n['date_saisie'])) ?></td>
                 </tr>
             <?php endforeach; endif; ?>
             </tbody>

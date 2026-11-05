@@ -13,6 +13,36 @@ function navClass(string $file, string $current): string {
         : 'text-gray-700 hover:text-blue-600 pb-1 border-b-2 border-transparent';
 }
 $lang = currentLang();
+
+$flags = [
+    'fr' => ['🇫🇷', 'Français', 'FR'],
+    'en' => ['🇬🇧', 'English',  'EN'],
+    'es' => ['🇪🇸', 'Español',  'ES'],
+];
+$currentFlag = $flags[$lang] ?? $flags['fr'];
+
+// --- Initiales de l'utilisateur ---
+$initiales = strtoupper(
+    mb_substr($user['prenom'] ?? '', 0, 1) .
+    mb_substr($user['nom']    ?? '', 0, 1)
+);
+if ($initiales === '') $initiales = '?';
+
+// --- Couleur selon le type ---
+$typeLabel = $user['type_label'] ?? 'user';
+$avatarColor = match($typeLabel) {
+    'admin'       => 'bg-purple-600 text-white',
+    'superviseur' => 'bg-blue-600 text-white',
+    'user', 'professeur' => 'bg-green-600 text-white',
+    default       => 'bg-gray-500 text-white',
+};
+$typeBadgeColor = match($typeLabel) {
+    'admin'       => 'bg-purple-100 text-purple-700',
+    'superviseur' => 'bg-blue-100 text-blue-700',
+    'user', 'professeur' => 'bg-green-100 text-green-700',
+    default       => 'bg-gray-100 text-gray-600',
+};
+$typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel));
 ?>
 <!DOCTYPE html>
 <html lang="<?= e($lang) ?>">
@@ -40,13 +70,16 @@ $lang = currentLang();
                     </span>
                 </a>
 
-                <div class="hidden lg:flex gap-4 text-sm">
+                <div class="hidden xl:flex gap-3 text-sm">
                     <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
                     <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
                         <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
                     <?php endif; ?>
                     <a href="/ICEANOTES/pages/modules.php"    class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+                    <?php if ($isAdmin): ?>
+                        <a href="/ICEANOTES/pages/note_types.php"  class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+                    <?php endif; ?>
                     <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
                     <?php endif; ?>
@@ -54,32 +87,70 @@ $lang = currentLang();
                     <a href="/ICEANOTES/pages/notes.php"      class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
                 </div>
             </div>
+
             <div class="flex items-center gap-3">
-                <form method="GET" class="flex items-center gap-1 text-sm">
-                    <select name="lang" onchange="this.form.submit()" class="px-2 py-1 border border-gray-300 rounded text-sm">
-                        <?php foreach (['fr'=>'FR','en'=>'EN','es'=>'ES'] as $code => $lbl): ?>
-                            <option value="<?= $code ?>" <?= $lang === $code ? 'selected' : '' ?>><?= $lbl ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </form>
-                <span class="hidden sm:block text-sm text-gray-500">
-                    <?= e($user['email']) ?>
-                    <?php if ($isAdmin): ?>
-                        <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= t('type_admin') ?></span>
-                    <?php elseif ($isSuperviseur): ?>
-                        <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700"><?= t('type_superviseur') ?></span>
-                    <?php endif; ?>
-                </span>
+                <!-- Badge type + Avatar avec initiales -->
+                <div class="flex items-center gap-2" title="<?= e($user['prenom'] . ' ' . $user['nom'] . ' — ' . $user['email']) ?>">
+                    <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-xs font-medium <?= $typeBadgeColor ?>">
+                        <?= e($typeBadgeLabel) ?>
+                    </span>
+
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-sm <?= $avatarColor ?>">
+                        <?= e($initiales) ?>
+                    </div>
+                </div>
+
                 <a href="/ICEANOTES/logout.php" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg"><?= t('logout') ?></a>
+
+                <!-- Sélecteur de langue -->
+                <div class="relative" id="langDropdownWrapper">
+                    <button type="button"
+                            id="langDropdownBtn"
+                            onclick="toggleLangDropdown()"
+                            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
+                        <span class="text-lg leading-none"><?= $currentFlag[0] ?></span>
+                        <span class="text-xs font-semibold text-gray-700"><?= $currentFlag[2] ?></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div id="langDropdownMenu"
+                         class="hidden absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+                        <?php foreach ($flags as $code => [$emoji, $label, $short]): ?>
+                            <?php
+                            $url = '?' . http_build_query(array_merge($_GET, ['lang' => $code]));
+                            $isActive = ($lang === $code);
+                            ?>
+                            <a href="<?= e($url) ?>"
+                               class="flex items-center gap-3 px-3 py-2 text-sm transition
+                                      <?= $isActive
+                                            ? 'bg-blue-50 text-blue-700 font-semibold'
+                                            : 'text-gray-700 hover:bg-gray-50' ?>">
+                                <span class="text-lg leading-none"><?= $emoji ?></span>
+                                <span class="flex-1"><?= e($label) ?></span>
+                                <?php if ($isActive): ?>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                <?php endif; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="lg:hidden flex gap-4 pb-3 text-sm overflow-x-auto">
+
+        <div class="xl:hidden flex gap-4 pb-3 text-sm overflow-x-auto">
             <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
             <?php if ($isSuperviseur): ?>
                 <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
                 <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
             <?php endif; ?>
             <a href="/ICEANOTES/pages/modules.php"    class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+            <?php if ($isAdmin): ?>
+                <a href="/ICEANOTES/pages/note_types.php"  class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+            <?php endif; ?>
             <?php if ($isSuperviseur): ?>
                 <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
             <?php endif; ?>
@@ -90,3 +161,20 @@ $lang = currentLang();
 </nav>
 
 <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-8">
+
+<script>
+function toggleLangDropdown() {
+    document.getElementById('langDropdownMenu').classList.toggle('hidden');
+}
+document.addEventListener('click', function (e) {
+    const wrapper = document.getElementById('langDropdownWrapper');
+    if (!wrapper.contains(e.target)) {
+        document.getElementById('langDropdownMenu').classList.add('hidden');
+    }
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        document.getElementById('langDropdownMenu').classList.add('hidden');
+    }
+});
+</script>

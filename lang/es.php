@@ -96,4 +96,12 @@ return [
     'ok_delete'         => 'Eliminado.',
     'ok_toggle'         => 'Estado actualizado.',
     'error_generic'     => 'Se produjo un error.',
+    'type_admin'        => 'Administrador',
+    'type_superviseur'  => 'Supervisor',
+    'type_user'         => 'Usuario',
+    'type_guest'        => 'Invitado',
+    'protected_badge'   => 'Protegido',
+    'cannot_delete_admin' => 'No se puede eliminar un administrador.',
+    'cannot_delete_superviseur' => 'No se puede eliminar un supervisor.',
+    'cannot_deactivate_admin' => 'No se puede desactivar un administrador.',
 ];

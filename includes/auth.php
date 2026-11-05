@@ -95,3 +95,102 @@ function requireAdmin(): void
         exit;
     }
 }
+
+/**
+ * Vérifie si l'utilisateur est superviseur ou admin
+ */
+function isSuperviseur(): bool
+{
+    return isLoggedIn() && in_array(($_SESSION['user_type'] ?? ''), ['admin', 'superviseur'], true);
+}
+
+/**
+ * Bloque l'accès aux superviseurs + admins
+ */
+function requireSuperviseur(): void
+{
+    if (!isSuperviseur()) {
+        header('Location: /ICEANOTES/pages/accueil.php');
+        exit;
+    }
+}
+
+/**
+ * Vérifie si l'utilisateur peut modifier un user donné
+ * Règles :
+ *  - Admin : peut tout (sauf se supprimer/désactiver lui-même)
+ *  - Superviseur : peut tout sur les 'user'/'guest', mais pas sur admin/superviseur
+ *  - User : ne peut rien sur les users
+ */
+function canEditUser(array $target): bool
+{
+    if (!isLoggedIn()) return false;
+
+    $me = currentUser();
+    if (!$me) return false;
+
+    // Admin : peut tout sauf se toucher lui-même (suppression/désactivation)
+    if ($me['type_label'] === 'admin') {
+        return (int)$target['id'] !== (int)$me['id'];
+    }
+
+    // Superviseur : peut uniquement gérer les 'user' et 'guest'
+    if ($me['type_label'] === 'superviseur') {
+        return in_array($target['type_label'], ['user', 'guest'], true);
+    }
+
+    // User : aucun droit sur les autres users
+    return false;
+}
+
+/**
+ * Peut-on supprimer cet utilisateur ?
+ */
+function canDeleteUser(array $target): bool
+{
+    if (!isLoggedIn()) return false;
+
+    $me = currentUser();
+    if (!$me) return false;
+
+    // Protégé (admin ou superviseur protégé) : jamais supprimable
+    if (!empty($target['protected'])) return false;
+
+    // Admin ne peut pas se supprimer
+    if ($me['type_label'] === 'admin' && (int)$target['id'] === (int)$me['id']) {
+        return false;
+    }
+
+    // Superviseur : ne peut supprimer que les 'user'/'guest' non protégés
+    if ($me['type_label'] === 'superviseur') {
+        return in_array($target['type_label'], ['user', 'guest'], true) && empty($target['protected']);
+    }
+
+    return false;
+}
+
+/**
+ * Peut-on désactiver cet utilisateur ?
+ */
+function canToggleUser(array $target): bool
+{
+    if (!isLoggedIn()) return false;
+
+    $me = currentUser();
+    if (!$me) return false;
+
+    // Admin : jamais désactivable
+    if ($target['type_label'] === 'admin') return false;
+
+    // Superviseur protégé : désactivable par admin seulement
+    if ($target['type_label'] === 'superviseur') {
+        return $me['type_label'] === 'admin';
+    }
+
+    // User/guest : désactivable par admin ou superviseur
+    if (in_array($me['type_label'], ['admin', 'superviseur'], true)) {
+        return true;
+    }
+
+    return false;
+}

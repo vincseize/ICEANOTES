@@ -96,4 +96,12 @@ return [
     'ok_delete'         => 'Suppression effectuée.',
     'ok_toggle'         => 'Statut mis à jour.',
     'error_generic'     => 'Une erreur est survenue.',
+    'type_admin'        => 'Administrateur',
+    'type_superviseur'  => 'Superviseur',
+    'type_user'         => 'Utilisateur',
+    'type_guest'        => 'Invité',
+    'protected_badge'   => 'Protégé',
+    'cannot_delete_admin' => 'Impossible de supprimer un admin.',
+    'cannot_delete_superviseur' => 'Impossible de supprimer un superviseur.',
+    'cannot_deactivate_admin' => 'Impossible de désactiver un admin.',
 ];

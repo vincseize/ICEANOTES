@@ -71,30 +71,34 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                 </a>
 
                 <div class="hidden xl:flex gap-3 text-sm">
-                    <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+                    <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+
                     <?php if ($isSuperviseur): ?>
-                        <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                        <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
+                        <a href="/ICEANOTES/pages/filieres.php" class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
+                        <a href="/ICEANOTES/pages/promotions.php" class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
                     <?php endif; ?>
-                    <a href="/ICEANOTES/pages/modules.php"    class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
-                    <?php if ($isAdmin): ?>
-                        <a href="/ICEANOTES/pages/note_types.php"  class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
-                    <?php endif; ?>
+
+                    <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+
                     <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
                     <?php endif; ?>
-                    <a href="/ICEANOTES/pages/etudiants.php"  class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-                    <a href="/ICEANOTES/pages/notes.php"      class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+                    <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
+
+                    <a href="/ICEANOTES/pages/notes.php" class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+                    <?php if ($isSuperviseur): ?>
+                        <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+                    <?php endif; ?>
                 </div>
             </div>
 
             <div class="flex items-center gap-3">
-                <!-- Badge type + Avatar avec initiales -->
                 <div class="flex items-center gap-2" title="<?= e($user['prenom'] . ' ' . $user['nom'] . ' — ' . $user['email']) ?>">
                     <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-xs font-medium <?= $typeBadgeColor ?>">
                         <?= e($typeBadgeLabel) ?>
                     </span>
-
                     <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-sm <?= $avatarColor ?>">
                         <?= e($initiales) ?>
                     </div>
@@ -102,11 +106,8 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
 
                 <a href="/ICEANOTES/logout.php" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg"><?= t('logout') ?></a>
 
-                <!-- Sélecteur de langue -->
                 <div class="relative" id="langDropdownWrapper">
-                    <button type="button"
-                            id="langDropdownBtn"
-                            onclick="toggleLangDropdown()"
+                    <button type="button" id="langDropdownBtn" onclick="toggleLangDropdown()"
                             class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
                         <span class="text-lg leading-none"><?= $currentFlag[0] ?></span>
                         <span class="text-xs font-semibold text-gray-700"><?= $currentFlag[2] ?></span>
@@ -115,18 +116,14 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                         </svg>
                     </button>
 
-                    <div id="langDropdownMenu"
-                         class="hidden absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+                    <div id="langDropdownMenu" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
                         <?php foreach ($flags as $code => [$emoji, $label, $short]): ?>
                             <?php
                             $url = '?' . http_build_query(array_merge($_GET, ['lang' => $code]));
                             $isActive = ($lang === $code);
                             ?>
-                            <a href="<?= e($url) ?>"
-                               class="flex items-center gap-3 px-3 py-2 text-sm transition
-                                      <?= $isActive
-                                            ? 'bg-blue-50 text-blue-700 font-semibold'
-                                            : 'text-gray-700 hover:bg-gray-50' ?>">
+                            <a href="<?= e($url) ?>" class="flex items-center gap-3 px-3 py-2 text-sm transition
+                                      <?= $isActive ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50' ?>">
                                 <span class="text-lg leading-none"><?= $emoji ?></span>
                                 <span class="flex-1"><?= e($label) ?></span>
                                 <?php if ($isActive): ?>
@@ -142,20 +139,26 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
         </div>
 
         <div class="xl:hidden flex gap-4 pb-3 text-sm overflow-x-auto">
-            <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+            <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+
             <?php if ($isSuperviseur): ?>
-                <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
+                <a href="/ICEANOTES/pages/filieres.php" class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
+                <a href="/ICEANOTES/pages/promotions.php" class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
             <?php endif; ?>
-            <a href="/ICEANOTES/pages/modules.php"    class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
-            <?php if ($isAdmin): ?>
-                <a href="/ICEANOTES/pages/note_types.php"  class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
-            <?php endif; ?>
+
+            <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+
             <?php if ($isSuperviseur): ?>
                 <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
             <?php endif; ?>
-            <a href="/ICEANOTES/pages/etudiants.php"  class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-            <a href="/ICEANOTES/pages/notes.php"      class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+            <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
+
+            <a href="/ICEANOTES/pages/notes.php" class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+            <?php if ($isSuperviseur): ?>
+                <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+            <?php endif; ?>
         </div>
     </div>
 </nav>

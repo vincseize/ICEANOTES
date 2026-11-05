@@ -3,7 +3,7 @@
 require_once __DIR__ . '/../config/database.php';
 require_once BASE_PATH . '/includes/auth.php';
 requireLogin();
-requireSuperviseur(); // superviseur OU admin
+requireSuperviseur();
 
 $me = currentUser();
 $isAdmin = isAdmin();
@@ -22,18 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $actif  = isset($_POST['actif']) ? 1 : 0;
         $id     = (int)($_POST['id'] ?? 0);
 
-        // Récupérer le label du type demandé
         $typeLabel = $pdo->query("SELECT label FROM users_types WHERE id = " . (int)$typeId)->fetchColumn();
         if (!$typeLabel) {
             $msg = "Type invalide.";
         }
 
-        // Empêcher un superviseur de créer/modifier un admin ou superviseur
         if (!$msg && !$isAdmin && !in_array($typeLabel, ['user', 'guest'], true)) {
             $msg = "Vous ne pouvez pas créer ce type d'utilisateur.";
         }
 
-        // Empêcher la création d'un 2ᵉ admin
         if (!$msg && $typeLabel === 'admin' && $action === 'add') {
             $adminCount = (int)$pdo->query("
                 SELECT COUNT(*) FROM users u JOIN users_types t ON t.id=u.user_type_id WHERE t.label='admin'
@@ -43,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Si on édite un admin, interdiction de le rétrograder
         if (!$msg && $action === 'edit') {
             $curType = $pdo->query("
                 SELECT t.label FROM users u JOIN users_types t ON t.id=u.user_type_id WHERE u.id = " . (int)$id
@@ -134,7 +130,7 @@ if (isset($_GET['delete'])) {
             $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$id]);
             redirect('/ICEANOTES/pages/professeurs.php?ok=delete');
         } catch (PDOException $e) {
-            $msg = "Impossible : matières ou notes assignées.";
+            $msg = "Impossible : modules ou notes assignés.";
         }
     }
 }
@@ -184,7 +180,7 @@ $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
     SELECT u.*, t.label AS type_label,
-           (SELECT COUNT(*) FROM matieres m WHERE m.professeur_id = u.id) AS nb_mat
+           (SELECT COUNT(*) FROM modules m WHERE m.professeur_id = u.id) AS nb_modules
     FROM users u JOIN users_types t ON t.id = u.user_type_id
     WHERE $whereSql
     ORDER BY u.nom, u.prenom
@@ -193,7 +189,6 @@ $stmt = $pdo->prepare("
 $stmt->execute($params);
 $users = $stmt->fetchAll();
 
-// Types disponibles pour le select
 $types = $pdo->query("SELECT * FROM users_types ORDER BY id")->fetchAll();
 
 require_once BASE_PATH . '/includes/header.php';
@@ -230,9 +225,7 @@ require_once BASE_PATH . '/includes/header.php';
 
     <select name="user_type_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
         <?php foreach ($types as $tp):
-            // Restriction : superviseur ne voit que user/guest
             if (!$isAdmin && !in_array($tp['label'], ['user', 'guest'], true)) continue;
-            // Un admin déjà présent ne peut pas être recréé (mais reste dans la liste pour l'édition)
             if ($tp['label'] === 'admin' && !$editRow) continue;
             $labelKey = 'type_' . $tp['label'];
         ?>
@@ -277,7 +270,7 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('prof_nom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('email', t('prof_email'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('type', 'Type', $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('matieres_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
@@ -311,7 +304,7 @@ require_once BASE_PATH . '/includes/header.php';
                             <?= t('type_' . $u['type_label']) ?>
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-center"><?= $u['nb_mat'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= $u['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
                         <?php if ($canToggle): ?>
                             <a href="?toggle=<?= $u['id'] ?>" title="<?= e($u['actif'] ? t('deactivate') : t('activate')) ?>"
@@ -332,7 +325,7 @@ require_once BASE_PATH . '/includes/header.php';
                             $canToggle ? '/ICEANOTES/pages/professeurs.php?toggle=' . $u['id'] : '',
                             (bool)$u['actif'],
                             $canDelete,
-                            false // toggle déjà en colonne dédiée
+                            false
                         ) ?>
                     </td>
                 </tr>

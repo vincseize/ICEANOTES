@@ -35,6 +35,198 @@ function computeMoyenne(PDO $pdo, int $etudiantId, int $moduleId): ?float
     return $sumCoefs > 0 ? round($sumNotes / $sumCoefs, 2) : null;
 }
 
+// --- Filtres (récupérés avant tout, pour l'export aussi) ---
+$filterPromo  = (int)($_GET['promo'] ?? 0);
+$filterModule = (int)($_GET['module'] ?? 0);
+$search       = trim($_GET['q'] ?? '');
+
+/**
+ * Construit les données de la grille selon les filtres actuels
+ * Utilisé pour l'affichage ET pour l'export
+ */
+function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, int $filterModule, string $search): array
+{
+    // Types de notes actifs
+    $types = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
+
+    // Étudiants
+    $etWhere = ['e.actif = 1'];
+    $etParams = [];
+    if ($search !== '') {
+        $etWhere[] = "(e.nom LIKE ? OR e.prenom LIKE ?)";
+        $like = "%$search%";
+        array_push($etParams, $like, $like);
+    }
+    if ($filterPromo) {
+        $etWhere[] = "e.promotion_id = ?";
+        $etParams[] = $filterPromo;
+    }
+    $etWhereSql = implode(' AND ', $etWhere);
+
+    $stmt = $pdo->prepare("
+        SELECT e.*, p.nom AS niveau, p.promo, p.annee, p.filiere_id, f.nom AS filiere
+        FROM etudiants e
+        JOIN promotions p ON p.id = e.promotion_id
+        JOIN filieres f ON f.id = p.filiere_id
+        WHERE $etWhereSql
+        ORDER BY p.ordre, e.nom, e.prenom
+    ");
+    $stmt->execute($etParams);
+    $etudiants = $stmt->fetchAll();
+
+    // Modules
+    $modWhere = ['m.actif = 1'];
+    $modParams = [];
+    if (!$isSuperviseur) {
+        $modWhere[] = "m.professeur_id = ?";
+        $modParams[] = $myId;
+    }
+    if ($filterModule) {
+        $modWhere[] = "m.id = ?";
+        $modParams[] = $filterModule;
+    }
+    $modWhereSql = implode(' AND ', $modWhere);
+
+    $stmt = $pdo->prepare("
+        SELECT m.*, f.nom AS filiere, f.id AS filiere_id
+        FROM modules m
+        JOIN filieres f ON f.id = m.filiere_id
+        WHERE $modWhereSql
+        ORDER BY m.niveau, f.nom, m.nom
+    ");
+    $stmt->execute($modParams);
+    $modules = $stmt->fetchAll();
+
+    // Notes existantes
+    $notesMap = [];
+    if (!empty($etudiants) && !empty($modules)) {
+        $etudiantIds = array_column($etudiants, 'id');
+        $moduleIds   = array_column($modules, 'id');
+        $inE = implode(',', array_fill(0, count($etudiantIds), '?'));
+        $inM = implode(',', array_fill(0, count($moduleIds), '?'));
+
+        $stmt = $pdo->prepare("SELECT * FROM notes WHERE etudiant_id IN ($inE) AND module_id IN ($inM)");
+        $stmt->execute(array_merge($etudiantIds, $moduleIds));
+        foreach ($stmt->fetchAll() as $n) {
+            $notesMap[$n['etudiant_id']][$n['module_id']][$n['note_type_id']] = $n;
+        }
+    }
+
+    // Construire la grille
+    $grid = [];
+    foreach ($etudiants as $et) {
+        $modulesForEt = [];
+        foreach ($modules as $mod) {
+            if ($et['filiere_id'] != $mod['filiere_id']) continue;
+            if ($et['niveau'] !== $mod['niveau']) continue;
+            $modulesForEt[] = $mod;
+        }
+
+        if (empty($modulesForEt)) {
+            $grid[] = [
+                'etudiant' => $et,
+                'module'   => null,
+                'notes'    => [],
+                'moyenne'  => null,
+                'empty'    => true,
+            ];
+        } else {
+            foreach ($modulesForEt as $mod) {
+                $notes = $notesMap[$et['id']][$mod['id']] ?? [];
+                $moy = computeMoyenne($pdo, (int)$et['id'], (int)$mod['id']);
+                $grid[] = [
+                    'etudiant' => $et,
+                    'module'   => $mod,
+                    'notes'    => $notes,
+                    'moyenne'  => $moy,
+                    'empty'    => false,
+                ];
+            }
+        }
+    }
+
+    return ['grid' => $grid, 'types' => $types];
+}
+
+// ============================================================================
+// EXPORT CSV / JSON
+// ============================================================================
+if (isset($_GET['export'])) {
+    $format = $_GET['export'];
+    $data = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $search);
+    $grid = $data['grid'];
+    $types = $data['types'];
+
+    $filename = 'notes_' . date('Y-m-d_His');
+
+    // Construire les lignes
+    $rows = [];
+    foreach ($grid as $row) {
+        $et  = $row['etudiant'];
+        $mod = $row['module'];
+
+        $line = [
+            'etudiant_nom'    => $et['nom'],
+            'etudiant_prenom' => $et['prenom'],
+            'niveau'          => $et['niveau'],
+            'promo'           => $et['promo'] ?? '',
+            'annee'           => $et['annee'] ?? '',
+            'filiere'         => $et['filiere'] ?? '',
+            'module'          => $mod['nom'] ?? '—',
+        ];
+
+        foreach ($types as $tp) {
+            $note = $row['notes'][$tp['id']] ?? null;
+            $line['note_' . $tp['nom']] = $note ? (float)$note['valeur'] : '';
+        }
+
+        $line['moyenne'] = $row['moyenne'] !== null ? $row['moyenne'] : '';
+
+        $rows[] = $line;
+    }
+
+    if ($format === 'csv') {
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
+
+        $out = fopen('php://output', 'w');
+        // BOM UTF-8 pour Excel
+        fwrite($out, "\xEF\xBB\xBF");
+
+        // En-têtes
+        if (!empty($rows)) {
+            fputcsv($out, array_keys($rows[0]), ';');
+            foreach ($rows as $r) {
+                fputcsv($out, array_values($r), ';');
+            }
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($format === 'json') {
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '.json"');
+
+        echo json_encode([
+            'export_date' => date('c'),
+            'filters' => [
+                'q'      => $search,
+                'promo'  => $filterPromo,
+                'module' => $filterModule,
+            ],
+            'types' => array_map(fn($t) => ['nom' => $t['nom'], 'sur' => $t['sur'], 'coef' => $t['coef']], $types),
+            'count' => count($rows),
+            'data'  => $rows,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
+// ============================================================================
+// AFFICHAGE NORMAL
+// ============================================================================
+
 // --- Suppression d'une note ---
 if (isset($_GET['delete_note'])) {
     $id = (int)$_GET['delete_note'];
@@ -101,113 +293,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     exit;
 }
 
-// --- Filtres ---
-$filterPromo  = (int)($_GET['promo'] ?? 0);
-$filterModule = (int)($_GET['module'] ?? 0);
-$search       = trim($_GET['q'] ?? '');
-
 [$page, $perPage, $offset, $sort, $dir] = array_values(listParams(20));
 
-// --- Types de notes actifs ---
-$types = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
+$data  = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $search);
+$grid  = $data['grid'];
+$types = $data['types'];
 
-// --- Étudiants ---
-$etWhere = ['e.actif = 1'];
-$etParams = [];
-if ($search !== '') {
-    $etWhere[] = "(e.nom LIKE ? OR e.prenom LIKE ?)";
-    $like = "%$search%";
-    array_push($etParams, $like, $like);
-}
-if ($filterPromo) {
-    $etWhere[] = "e.promotion_id = ?";
-    $etParams[] = $filterPromo;
-}
-$etWhereSql = implode(' AND ', $etWhere);
-
-$stmt = $pdo->prepare("
-    SELECT e.*, p.nom AS niveau, p.promo, p.annee, p.filiere_id, f.nom AS filiere
-    FROM etudiants e
-    JOIN promotions p ON p.id = e.promotion_id
-    JOIN filieres f ON f.id = p.filiere_id
-    WHERE $etWhereSql
-    ORDER BY p.ordre, e.nom, e.prenom
-");
-$stmt->execute($etParams);
-$etudiants = $stmt->fetchAll();
-
-// --- Modules ---
-$modWhere = ['m.actif = 1'];
-$modParams = [];
-if (!$isSuperviseur) {
-    $modWhere[] = "m.professeur_id = ?";
-    $modParams[] = $myId;
-}
-if ($filterModule) {
-    $modWhere[] = "m.id = ?";
-    $modParams[] = $filterModule;
-}
-$modWhereSql = implode(' AND ', $modWhere);
-
-$stmt = $pdo->prepare("
-    SELECT m.*, f.nom AS filiere, f.id AS filiere_id
-    FROM modules m
-    JOIN filieres f ON f.id = m.filiere_id
-    WHERE $modWhereSql
-    ORDER BY m.niveau, f.nom, m.nom
-");
-$stmt->execute($modParams);
-$modules = $stmt->fetchAll();
-
-// --- Notes existantes (map) ---
-$notesMap = [];
-if (!empty($etudiants) && !empty($modules)) {
-    $etudiantIds = array_column($etudiants, 'id');
-    $moduleIds   = array_column($modules, 'id');
-    $inE = implode(',', array_fill(0, count($etudiantIds), '?'));
-    $inM = implode(',', array_fill(0, count($moduleIds), '?'));
-
-    $stmt = $pdo->prepare("SELECT * FROM notes WHERE etudiant_id IN ($inE) AND module_id IN ($inM)");
-    $stmt->execute(array_merge($etudiantIds, $moduleIds));
-    foreach ($stmt->fetchAll() as $n) {
-        $notesMap[$n['etudiant_id']][$n['module_id']][$n['note_type_id']] = $n;
-    }
-}
-
-// --- Construire la grille ---
-$grid = [];
-foreach ($etudiants as $et) {
-    $modulesForEt = [];
-    foreach ($modules as $mod) {
-        if ($et['filiere_id'] != $mod['filiere_id']) continue;
-        if ($et['niveau'] !== $mod['niveau']) continue;
-        $modulesForEt[] = $mod;
-    }
-
-    if (empty($modulesForEt)) {
-        $grid[] = [
-            'etudiant' => $et,
-            'module'   => null,
-            'notes'    => [],
-            'moyenne'  => null,
-            'empty'    => true,
-        ];
-    } else {
-        foreach ($modulesForEt as $mod) {
-            $notes = $notesMap[$et['id']][$mod['id']] ?? [];
-            $moy = computeMoyenne($pdo, (int)$et['id'], (int)$mod['id']);
-            $grid[] = [
-                'etudiant' => $et,
-                'module'   => $mod,
-                'notes'    => $notes,
-                'moyenne'  => $moy,
-                'empty'    => false,
-            ];
-        }
-    }
-}
-
-// --- Tri ---
+// Tri
 $sortKeys = [
     'etudiant' => fn($a, $b) => strcmp($a['etudiant']['nom'] . $a['etudiant']['prenom'], $b['etudiant']['nom'] . $b['etudiant']['prenom']),
     'module'   => fn($a, $b) => strcmp($a['module']['nom'] ?? '', $b['module']['nom'] ?? ''),
@@ -221,7 +313,7 @@ if (isset($sortKeys[$sort])) {
 $total = count($grid);
 $grid  = array_slice($grid, $offset, $perPage);
 
-// --- Listes filtres ---
+// Listes filtres
 $promotions = $pdo->query("
     SELECT p.*, f.nom AS filiere FROM promotions p JOIN filieres f ON f.id = p.filiere_id
     WHERE p.actif = 1 ORDER BY p.ordre, f.nom
@@ -232,15 +324,6 @@ $allModules = $pdo->query("
     WHERE m.actif = 1 ORDER BY m.niveau, f.nom, m.nom
 ")->fetchAll();
 
-// Helper : build URL avec les filtres courants
-function currentUrl(array $overrides = []): string
-{
-    $params = array_merge($_GET, $overrides);
-    // Supprimer les valeurs vides
-    $params = array_filter($params, fn($v) => $v !== '' && $v !== null);
-    return '?' . http_build_query($params);
-}
-
 require_once BASE_PATH . '/includes/header.php';
 ?>
 
@@ -250,6 +333,24 @@ require_once BASE_PATH . '/includes/header.php';
             <?= $isSuperviseur ? t('notes_title') : t('notes_title_prof') ?>
         </h1>
         <p class="text-sm text-gray-500"><?= t('notes_page_count', ['n' => $total]) ?> (étudiants × modules)</p>
+    </div>
+
+    <!-- Boutons d'export -->
+    <div class="flex gap-2">
+        <a href="<?= e(currentUrl(['export' => 'csv'])) ?>"
+           class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            CSV
+        </a>
+        <a href="<?= e(currentUrl(['export' => 'json'])) ?>"
+           class="inline-flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            JSON
+        </a>
     </div>
 </div>
 
@@ -289,20 +390,16 @@ require_once BASE_PATH . '/includes/header.php';
 </form>
 
 <script>
-// Filtres en live
 (function () {
-    const form   = document.getElementById('filterForm');
     const search = document.getElementById('searchInput');
     const promo  = document.getElementById('promoSelect');
     const module = document.getElementById('moduleSelect');
 
     let searchTimeout = null;
 
-    // Recherche texte : debounce 400ms
     search.addEventListener('input', function () {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(function () {
-            // Reset page si présent
             const url = new URL(window.location.href);
             url.searchParams.set('q', search.value);
             url.searchParams.delete('page');
@@ -310,7 +407,6 @@ require_once BASE_PATH . '/includes/header.php';
         }, 400);
     });
 
-    // Selects : changement immédiat
     [promo, module].forEach(function (sel) {
         sel.addEventListener('change', function () {
             const url = new URL(window.location.href);
@@ -428,7 +524,6 @@ require_once BASE_PATH . '/includes/header.php';
 ?>
 
 <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-    <!-- Sélecteur per_page -->
     <div class="flex items-center gap-2 text-sm text-gray-600">
         <span><?= t('lines_per_page') ?? 'Lignes par page :' ?></span>
         <div class="flex gap-1">
@@ -444,7 +539,6 @@ require_once BASE_PATH . '/includes/header.php';
         </div>
     </div>
 
-    <!-- Pagination -->
     <?php if ($pages > 1): ?>
         <div class="flex flex-wrap items-center gap-1">
             <?php if ($page > 1): ?>

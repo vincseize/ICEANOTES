@@ -93,6 +93,18 @@ function resetLink(string $page, int $perPage): string
     return '/ICEANOTES/pages/' . $page . '?per_page=' . $perPage;
 }
 
+/**
+ * Construit une URL avec les paramètres GET courants + overrides
+ * Utile pour préserver les filtres (export, langue, tri, etc.)
+ */
+function currentUrl(array $overrides = []): string
+{
+    $params = array_merge($_GET, $overrides);
+    // Retirer les valeurs vides
+    $params = array_filter($params, fn($v) => $v !== '' && $v !== null);
+    return '?' . http_build_query($params);
+}
+
 // --- i18n ---
 function currentLang(): string
 {

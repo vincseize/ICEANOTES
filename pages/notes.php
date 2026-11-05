@@ -35,18 +35,16 @@ function computeMoyenne(PDO $pdo, int $etudiantId, int $moduleId): ?float
     return $sumCoefs > 0 ? round($sumNotes / $sumCoefs, 2) : null;
 }
 
-// --- Filtres (récupérés avant tout, pour l'export aussi) ---
+// --- Filtres ---
 $filterPromo  = (int)($_GET['promo'] ?? 0);
 $filterModule = (int)($_GET['module'] ?? 0);
 $search       = trim($_GET['q'] ?? '');
 
 /**
- * Construit les données de la grille selon les filtres actuels
- * Utilisé pour l'affichage ET pour l'export
+ * Construit la grille (étudiant × module) selon les filtres
  */
 function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, int $filterModule, string $search): array
 {
-    // Types de notes actifs
     $types = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
 
     // Étudiants
@@ -97,7 +95,7 @@ function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, i
     $stmt->execute($modParams);
     $modules = $stmt->fetchAll();
 
-    // Notes existantes
+    // Notes
     $notesMap = [];
     if (!empty($etudiants) && !empty($modules)) {
         $etudiantIds = array_column($etudiants, 'id');
@@ -112,7 +110,7 @@ function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, i
         }
     }
 
-    // Construire la grille
+    // Grille
     $grid = [];
     foreach ($etudiants as $et) {
         $modulesForEt = [];
@@ -149,7 +147,7 @@ function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, i
 }
 
 // ============================================================================
-// EXPORT CSV / JSON
+// EXPORT CSV / JSON — colonnes dynamiques
 // ============================================================================
 if (isset($_GET['export'])) {
     $format = $_GET['export'];
@@ -159,20 +157,16 @@ if (isset($_GET['export'])) {
 
     $filename = 'notes_' . date('Y-m-d_His');
 
-    // Construire les lignes
+    // Lignes : colonnes fixes + dynamiques selon types actifs
     $rows = [];
     foreach ($grid as $row) {
         $et  = $row['etudiant'];
         $mod = $row['module'];
 
         $line = [
-            'etudiant_nom'    => $et['nom'],
-            'etudiant_prenom' => $et['prenom'],
-            'niveau'          => $et['niveau'],
-            'promo'           => $et['promo'] ?? '',
-            'annee'           => $et['annee'] ?? '',
-            'filiere'         => $et['filiere'] ?? '',
-            'module'          => $mod['nom'] ?? '—',
+            'etudiant' => $et['prenom'] . ' ' . $et['nom'],
+            'promo'    => $et['niveau'] . ($et['promo'] ? ' — ' . $et['promo'] : ''),
+            'module'   => $mod['nom'] ?? '',
         ];
 
         foreach ($types as $tp) {
@@ -185,17 +179,22 @@ if (isset($_GET['export'])) {
         $rows[] = $line;
     }
 
+    // En-têtes lisibles (avec barème + coef)
+    $headers = ['etudiant' => 'Étudiant', 'promo' => 'Promo', 'module' => 'Module'];
+    foreach ($types as $tp) {
+        $headers['note_' . $tp['nom']] = $tp['nom'] . ' / ' . (float)$tp['sur'] . ' (×' . (float)$tp['coef'] . ')';
+    }
+    $headers['moyenne'] = 'Moyenne';
+
     if ($format === 'csv') {
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
 
         $out = fopen('php://output', 'w');
-        // BOM UTF-8 pour Excel
         fwrite($out, "\xEF\xBB\xBF");
 
-        // En-têtes
         if (!empty($rows)) {
-            fputcsv($out, array_keys($rows[0]), ';');
+            fputcsv($out, array_values($headers), ';');
             foreach ($rows as $r) {
                 fputcsv($out, array_values($r), ';');
             }
@@ -210,24 +209,30 @@ if (isset($_GET['export'])) {
 
         echo json_encode([
             'export_date' => date('c'),
+            'app'         => APP_NAME . ' ' . APP_VERSION,
+            'user'        => $me['email'],
             'filters' => [
                 'q'      => $search,
                 'promo'  => $filterPromo,
                 'module' => $filterModule,
             ],
-            'types' => array_map(fn($t) => ['nom' => $t['nom'], 'sur' => $t['sur'], 'coef' => $t['coef']], $types),
-            'count' => count($rows),
-            'data'  => $rows,
+            'headers' => $headers,
+            'types'   => array_map(fn($t) => [
+                'nom'  => $t['nom'],
+                'sur'  => (float)$t['sur'],
+                'coef' => (float)$t['coef'],
+            ], $types),
+            'count'   => count($rows),
+            'data'    => $rows,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
     }
 }
 
 // ============================================================================
-// AFFICHAGE NORMAL
+// AFFICHAGE
 // ============================================================================
 
-// --- Suppression d'une note ---
 if (isset($_GET['delete_note'])) {
     $id = (int)$_GET['delete_note'];
     if ($isSuperviseur) {
@@ -239,7 +244,6 @@ if (isset($_GET['delete_note'])) {
     redirect('/ICEANOTES/pages/notes.php?ok=delete');
 }
 
-// --- Ajout / Édition (AJAX) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save') {
     header('Content-Type: application/json');
 
@@ -299,7 +303,6 @@ $data  = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $se
 $grid  = $data['grid'];
 $types = $data['types'];
 
-// Tri
 $sortKeys = [
     'etudiant' => fn($a, $b) => strcmp($a['etudiant']['nom'] . $a['etudiant']['prenom'], $b['etudiant']['nom'] . $b['etudiant']['prenom']),
     'module'   => fn($a, $b) => strcmp($a['module']['nom'] ?? '', $b['module']['nom'] ?? ''),
@@ -313,7 +316,6 @@ if (isset($sortKeys[$sort])) {
 $total = count($grid);
 $grid  = array_slice($grid, $offset, $perPage);
 
-// Listes filtres
 $promotions = $pdo->query("
     SELECT p.*, f.nom AS filiere FROM promotions p JOIN filieres f ON f.id = p.filiere_id
     WHERE p.actif = 1 ORDER BY p.ordre, f.nom
@@ -335,7 +337,6 @@ require_once BASE_PATH . '/includes/header.php';
         <p class="text-sm text-gray-500"><?= t('notes_page_count', ['n' => $total]) ?> (étudiants × modules)</p>
     </div>
 
-    <!-- Boutons d'export -->
     <div class="flex gap-2">
         <a href="<?= e(currentUrl(['export' => 'csv'])) ?>"
            class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition">
@@ -357,7 +358,6 @@ require_once BASE_PATH . '/includes/header.php';
 <?php if ($msg): ?><div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div><?php endif; ?>
 <?php if (isset($_GET['ok'])): ?><div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div><?php endif; ?>
 
-<!-- Filtres en live -->
 <form method="GET" id="filterForm" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
     <input type="text" name="q" id="searchInput" value="<?= e($search) ?>"
            placeholder="<?= e(t('search')) ?>"
@@ -388,35 +388,6 @@ require_once BASE_PATH . '/includes/header.php';
         </a>
     <?php endif; ?>
 </form>
-
-<script>
-(function () {
-    const search = document.getElementById('searchInput');
-    const promo  = document.getElementById('promoSelect');
-    const module = document.getElementById('moduleSelect');
-
-    let searchTimeout = null;
-
-    search.addEventListener('input', function () {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(function () {
-            const url = new URL(window.location.href);
-            url.searchParams.set('q', search.value);
-            url.searchParams.delete('page');
-            window.location.href = url.toString();
-        }, 400);
-    });
-
-    [promo, module].forEach(function (sel) {
-        sel.addEventListener('change', function () {
-            const url = new URL(window.location.href);
-            url.searchParams.set(sel.name, sel.value);
-            url.searchParams.delete('page');
-            window.location.href = url.toString();
-        });
-    });
-})();
-</script>
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
     <div class="overflow-x-auto">
@@ -524,19 +495,15 @@ require_once BASE_PATH . '/includes/header.php';
 ?>
 
 <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-    <div class="flex items-center gap-2 text-sm text-gray-600">
-        <span><?= t('lines_per_page') ?? 'Lignes par page :' ?></span>
-        <div class="flex gap-1">
+    <div>
+        <select id="perPageSelect"
+                class="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <?php foreach ([10, 20, 50, 100] as $n): ?>
-                <a href="<?= e($buildPerPageUrl($n)) ?>"
-                   class="px-3 py-1.5 rounded-lg text-sm font-medium transition
-                          <?= $perPage == $n
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300' ?>">
-                    <?= $n ?>
-                </a>
+                <option value="<?= e($buildPerPageUrl($n)) ?>" <?= $perPage == $n ? 'selected' : '' ?>>
+                    <?= $n ?> / page
+                </option>
             <?php endforeach; ?>
-        </div>
+        </select>
     </div>
 
     <?php if ($pages > 1): ?>
@@ -607,6 +574,46 @@ require_once BASE_PATH . '/includes/header.php';
 </div>
 
 <script>
+(function () {
+    // --- Filtres live ---
+    const search = document.getElementById('searchInput');
+    const promo  = document.getElementById('promoSelect');
+    const module = document.getElementById('moduleSelect');
+
+    let searchTimeout = null;
+
+    if (search) {
+        search.addEventListener('input', function () {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function () {
+                const url = new URL(window.location.href);
+                url.searchParams.set('q', search.value);
+                url.searchParams.delete('page');
+                window.location.href = url.toString();
+            }, 400);
+        });
+    }
+
+    [promo, module].forEach(function (sel) {
+        if (!sel) return;
+        sel.addEventListener('change', function () {
+            const url = new URL(window.location.href);
+            url.searchParams.set(sel.name, sel.value);
+            url.searchParams.delete('page');
+            window.location.href = url.toString();
+        });
+    });
+
+    // --- Changement per_page ---
+    const perPageSelect = document.getElementById('perPageSelect');
+    if (perPageSelect) {
+        perPageSelect.addEventListener('change', function () {
+            window.location.href = this.value;
+        });
+    }
+})();
+
+// --- Modal ---
 let currentDeleteId = 0;
 
 function openNoteModal(etudiantId, moduleId, typeId, noteId, valeur, etudiantNom, moduleNom, typeNom, sur) {

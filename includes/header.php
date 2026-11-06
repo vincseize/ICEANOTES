@@ -4,6 +4,26 @@ require_once BASE_PATH . '/includes/auth.php';
 requireLogin();
 $user = currentUser();
 $isAdmin = isAdmin();
+$isSuperviseur = isSuperviseur();
+
+// ============================================================================
+// 🍪 Cookie école : capturer le clic depuis n'importe quelle page
+//    (DOIT être avant tout output HTML)
+// ============================================================================
+$COOKIE_ECOLE = 'iceanotes_ecole';
+if (isset($_GET['ecole'])) {
+    $e = (int)$_GET['ecole'];
+    if ($e > 0) {
+        setcookie($COOKIE_ECOLE, (string)$e, [
+            'expires'  => time() + 365 * 86400,
+            'path'     => '/',
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
+    } else {
+        setcookie($COOKIE_ECOLE, '', time() - 3600, '/');
+    }
+}
 
 $current = basename($_SERVER['SCRIPT_NAME'] ?? '');
 function navClass(string $file, string $current): string {
@@ -12,6 +32,87 @@ function navClass(string $file, string $current): string {
         : 'text-gray-700 hover:text-blue-600 pb-1 border-b-2 border-transparent';
 }
 $lang = currentLang();
+
+$flags = [
+    'fr' => ['🇫🇷', 'Français', 'FR'],
+    'en' => ['🇬🇧', 'English',  'EN'],
+    'es' => ['🇪🇸', 'Español',  'ES'],
+];
+$currentFlag = $flags[$lang] ?? $flags['fr'];
+
+$initiales = strtoupper(
+    mb_substr($user['prenom'] ?? '', 0, 1) .
+    mb_substr($user['nom']    ?? '', 0, 1)
+);
+if ($initiales === '') $initiales = '?';
+
+$typeLabel = $user['type_label'] ?? 'user';
+$avatarColor = match($typeLabel) {
+    'admin'       => 'bg-purple-600 text-white',
+    'superviseur' => 'bg-blue-600 text-white',
+    'user', 'professeur' => 'bg-green-600 text-white',
+    default       => 'bg-gray-500 text-white',
+};
+$typeBadgeColor = match($typeLabel) {
+    'admin'       => 'bg-purple-100 text-purple-700',
+    'superviseur' => 'bg-blue-100 text-blue-700',
+    'user', 'professeur' => 'bg-green-100 text-green-700',
+    default       => 'bg-gray-100 text-gray-600',
+};
+$typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel));
+
+// ============================================================================
+// 🏫 Chargement des écoles actives pour les badges du header
+// ============================================================================
+$headerEcoles = [];
+$headerFilterEcole = 0;
+$headerSingleMode = false;
+$headerUrlSansEcole = '?';
+
+if (isLoggedIn()) {
+    $pdoHeader = getDB();
+    $myIdHeader = (int)$user['id'];
+    $isSupHeader = $isSuperviseur;
+
+    $ew = ["ec.actif = 1"];
+    $ep = [];
+    if (!$isSupHeader) { $ew[] = "m.professeur_id = ?"; $ep[] = $myIdHeader; }
+    $ewSql = 'WHERE ' . implode(' AND ', $ew);
+
+    $stmtH = $pdoHeader->prepare("
+        SELECT ec.id, ec.nom, ec.color, ec.actif, COUNT(n.id) AS nb_notes
+        FROM ecoles ec
+        LEFT JOIN filieres f  ON f.ecole_id = ec.id
+        LEFT JOIN promotions p ON p.filiere_id = f.id
+        LEFT JOIN etudiants e  ON e.promotion_id = p.id
+        LEFT JOIN modules m    ON m.filiere_id = f.id
+        LEFT JOIN notes n      ON n.etudiant_id = e.id AND n.module_id = m.id
+        $ewSql
+        GROUP BY ec.id, ec.nom, ec.color, ec.actif
+        ORDER BY ec.nom
+    ");
+    $stmtH->execute($ep);
+    $headerEcoles = $stmtH->fetchAll();
+
+    $headerSingleMode = (count($headerEcoles) === 1);
+
+    // Filtre école actif : $_GET prioritaire, sinon cookie
+    if (isset($_GET['ecole'])) {
+        $headerFilterEcole = (int)$_GET['ecole'];
+    } else {
+        $headerFilterEcole = (int)($_COOKIE[$COOKIE_ECOLE] ?? 0);
+    }
+
+    // Si une seule école → forcée
+    if ($headerSingleMode) {
+        $headerFilterEcole = (int)$headerEcoles[0]['id'];
+    }
+
+    // URL sans école pour désactiver le filtre
+    $headerUrlSansEcole = $_GET;
+    unset($headerUrlSansEcole['ecole'], $headerUrlSansEcole['page']);
+    $headerUrlSansEcole = '?' . http_build_query($headerUrlSansEcole);
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= e($lang) ?>">
@@ -19,6 +120,10 @@ $lang = currentLang();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= e(APP_NAME) ?> — <?= e(APP_VERSION) ?></title>
+    <meta name="theme-color" content="#2563eb">
+    <link rel="manifest" href="/ICEANOTES/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/ICEANOTES/assets/icons/favicon.svg">
+    <link rel="apple-touch-icon" href="/ICEANOTES/assets/icons/icon-192.svg">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
@@ -27,57 +132,214 @@ $lang = currentLang();
     <div class="max-w-7xl mx-auto px-4">
         <div class="flex items-center justify-between h-16">
             <div class="flex items-center gap-6">
-                <a href="/ICEANOTES/pages/accueil.php" class="text-xl font-bold text-blue-600">
-                    <?= e(APP_NAME) ?>
-                    <span class="text-xs text-gray-400 font-normal"><?= e(APP_VERSION) ?></span>
+                <a href="/ICEANOTES/pages/accueil.php" class="flex items-center gap-2">
+                    <img src="/ICEANOTES/assets/icons/icon.svg" alt="ICEANOTES" class="h-8 w-8">
+                    <span class="text-xl font-bold text-blue-600">
+                        <?= e(APP_NAME) ?>
+                        <span class="text-xs text-gray-400 font-normal"><?= e(APP_VERSION) ?></span>
+                    </span>
                 </a>
-                <div class="hidden lg:flex gap-4 text-sm">
-                    <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
-                    <?php if ($isAdmin): ?>
+
+                <div class="hidden xl:flex gap-3 text-sm items-center">
+                    <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+
+                    <?php if ($isSuperviseur): ?>
+                        <a href="/ICEANOTES/pages/ecoles.php"      class="<?= navClass('ecoles.php', $current) ?>"><?= t('nav_ecoles') ?></a>
                         <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                        <a href="/ICEANOTES/pages/diplomes.php"    class="<?= navClass('diplomes.php', $current) ?>"><?= t('nav_diplomes') ?></a>
+                        <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
                     <?php endif; ?>
-                    <a href="/ICEANOTES/pages/matieres.php"   class="<?= navClass('matieres.php', $current) ?>"><?= t('nav_matieres') ?></a>
-                    <?php if ($isAdmin): ?>
+
+                    <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+
+                    <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
-                        <a href="/ICEANOTES/pages/promos.php"      class="<?= navClass('promos.php', $current) ?>"><?= t('nav_promos') ?></a>
                     <?php endif; ?>
-                    <a href="/ICEANOTES/pages/etudiants.php"  class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-                    <a href="/ICEANOTES/pages/notes.php"      class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+                    <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
+                    <a href="/ICEANOTES/pages/notes.php"     class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+                    <?php if ($isSuperviseur): ?>
+                        <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+
+                        <span class="text-gray-300 select-none">|</span>
+
+                        <a href="/ICEANOTES/_SANDBOX/"
+                           class="text-gray-500 hover:text-purple-600 transition text-xs font-mono uppercase tracking-wider">
+                            SANDBOX
+                        </a>
+                    <?php endif; ?>
                 </div>
             </div>
+
             <div class="flex items-center gap-3">
-                <form method="GET" class="flex items-center gap-1 text-sm">
-                    <select name="lang" onchange="this.form.submit()" class="px-2 py-1 border border-gray-300 rounded text-sm">
-                        <?php foreach (['fr'=>'FR','en'=>'EN','es'=>'ES'] as $code => $lbl): ?>
-                            <option value="<?= $code ?>" <?= $lang === $code ? 'selected' : '' ?>><?= $lbl ?></option>
+                <div class="flex items-center gap-2" title="<?= e($user['prenom'] . ' ' . $user['nom'] . ' — ' . $user['email']) ?>">
+                    <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-xs font-medium <?= $typeBadgeColor ?>">
+                        <?= e($typeBadgeLabel) ?>
+                    </span>
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-sm <?= $avatarColor ?>">
+                        <?= e($initiales) ?>
+                    </div>
+                </div>
+
+                <a href="/ICEANOTES/logout.php" title="<?= e(t('logout')) ?>"
+                   class="bg-red-500 hover:bg-red-600 text-white px-2 py-1.5 rounded-lg transition flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                </a>
+
+                <div class="relative" id="langDropdownWrapper">
+                    <button type="button" id="langDropdownBtn" onclick="toggleLangDropdown()"
+                            class="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
+                        <span class="text-lg leading-none"><?= $currentFlag[0] ?></span>
+                        <span class="hidden sm:inline text-xs font-semibold text-gray-700"><?= $currentFlag[2] ?></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="hidden sm:block h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div id="langDropdownMenu" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+                        <?php foreach ($flags as $code => [$emoji, $label, $short]): ?>
+                            <?php
+                            $url = '?' . http_build_query(array_merge($_GET, ['lang' => $code]));
+                            $isActive = ($lang === $code);
+                            ?>
+                            <a href="<?= e($url) ?>" class="flex items-center gap-3 px-3 py-2 text-sm transition
+                                      <?= $isActive ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50' ?>">
+                                <span class="text-lg leading-none"><?= $emoji ?></span>
+                                <span class="flex-1"><?= e($label) ?></span>
+                                <?php if ($isActive): ?>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                <?php endif; ?>
+                            </a>
                         <?php endforeach; ?>
-                    </select>
-                </form>
-                <span class="hidden sm:block text-sm text-gray-500">
-                    <?= e($user['email']) ?>
-                    <?php if ($isAdmin): ?>
-                        <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= t('admin_badge') ?></span>
-                    <?php endif; ?>
-                </span>
-                <a href="/ICEANOTES/logout.php" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg"><?= t('logout') ?></a>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="lg:hidden flex gap-4 pb-3 text-sm overflow-x-auto">
-            <a href="/ICEANOTES/pages/accueil.php"    class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
-            <?php if ($isAdmin): ?>
+
+        <!-- ==================================================================== -->
+        <!-- LIGNE 2 (desktop) : badges écoles                                    -->
+        <!-- ==================================================================== -->
+        <?php if (!empty($headerEcoles)): ?>
+            <div class="hidden xl:flex items-center flex-wrap gap-2 py-3 border-t border-gray-100">
+                <?php if (count($headerEcoles) > 1): ?>
+                    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-1">
+                        <?= t('ecoles') ?>
+                    </span>
+                <?php endif; ?>
+
+                <?php foreach ($headerEcoles as $ec):
+                    $isActive = ($headerFilterEcole === (int)$ec['id']);
+                    $color = $ec['color'] ?: '#3b82f6';
+                    $isSingle = $headerSingleMode;
+                    $urlEcole = $isActive
+                        ? ($isSingle ? '#' : $headerUrlSansEcole)
+                        : '?' . http_build_query(array_merge($_GET, ['ecole' => $ec['id'], 'page' => null]));
+                ?>
+                    <a href="<?= e($urlEcole) ?>"
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition
+                              <?= $isActive
+                                    ? 'text-white border-transparent shadow-sm'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' ?>
+                              <?= $isSingle ? 'cursor-default' : '' ?>"
+                       <?php if ($isActive): ?>style="background-color: <?= e($color) ?>;"<?php else: ?>style="border-left: 3px solid <?= e($color) ?>;"<?php endif; ?>
+                       title="<?= e($ec['nom']) ?> — <?= (int)$ec['nb_notes'] ?> note(s)<?= ($isActive && !$isSingle) ? ' (cliquer pour désactiver)' : '' ?>">
+                        <span class="w-2 h-2 rounded-full"
+                              style="background-color: <?= $isActive ? '#fff' : e($color) ?>;"></span>
+                        <?= e($ec['nom']) ?>
+                        <span class="text-[10px] font-normal opacity-70">(<?= (int)$ec['nb_notes'] ?>)</span>
+                        <?php if ($isSingle): ?>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        <?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- Nav mobile -->
+        <div class="xl:hidden flex gap-4 pb-3 text-sm overflow-x-auto">
+            <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
+
+            <?php if ($isSuperviseur): ?>
+                <a href="/ICEANOTES/pages/ecoles.php"      class="<?= navClass('ecoles.php', $current) ?>"><?= t('nav_ecoles') ?></a>
                 <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                <a href="/ICEANOTES/pages/diplomes.php"    class="<?= navClass('diplomes.php', $current) ?>"><?= t('nav_diplomes') ?></a>
+                <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
             <?php endif; ?>
-            <a href="/ICEANOTES/pages/matieres.php"   class="<?= navClass('matieres.php', $current) ?>"><?= t('nav_matieres') ?></a>
-            <?php if ($isAdmin): ?>
+
+            <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
+
+            <?php if ($isSuperviseur): ?>
                 <a href="/ICEANOTES/pages/professeurs.php" class="<?= navClass('professeurs.php', $current) ?>"><?= t('nav_professeurs') ?></a>
-                <a href="/ICEANOTES/pages/promos.php"      class="<?= navClass('promos.php', $current) ?>"><?= t('nav_promos') ?></a>
             <?php endif; ?>
-            <a href="/ICEANOTES/pages/etudiants.php"  class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-            <a href="/ICEANOTES/pages/notes.php"      class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+            <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
+            <a href="/ICEANOTES/pages/notes.php"     class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+
+            <?php if ($isSuperviseur): ?>
+                <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
+            <?php endif; ?>
         </div>
+
+        <!-- Badges écoles (mobile) -->
+        <?php if (!empty($headerEcoles)): ?>
+            <div class="xl:hidden flex items-center flex-wrap gap-2 pb-3">
+                <?php if (count($headerEcoles) > 1): ?>
+                    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-1">
+                        <?= t('ecoles') ?>
+                    </span>
+                <?php endif; ?>
+
+                <?php foreach ($headerEcoles as $ec):
+                    $isActive = ($headerFilterEcole === (int)$ec['id']);
+                    $color = $ec['color'] ?: '#3b82f6';
+                    $isSingle = $headerSingleMode;
+                    $urlEcole = $isActive
+                        ? ($isSingle ? '#' : $headerUrlSansEcole)
+                        : '?' . http_build_query(array_merge($_GET, ['ecole' => $ec['id'], 'page' => null]));
+                ?>
+                    <a href="<?= e($urlEcole) ?>"
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition
+                              <?= $isActive
+                                    ? 'text-white border-transparent shadow-sm'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' ?>
+                              <?= $isSingle ? 'cursor-default' : '' ?>"
+                       <?php if ($isActive): ?>style="background-color: <?= e($color) ?>;"<?php else: ?>style="border-left: 3px solid <?= e($color) ?>;"<?php endif; ?>>
+                        <span class="w-2 h-2 rounded-full"
+                              style="background-color: <?= $isActive ? '#fff' : e($color) ?>;"></span>
+                        <?= e($ec['nom']) ?>
+                        <span class="text-[10px] font-normal opacity-70">(<?= (int)$ec['nb_notes'] ?>)</span>
+                        <?php if ($isSingle): ?>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        <?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </div>
 </nav>
 
 <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-8">
+
+<script>
+function toggleLangDropdown() {
+    document.getElementById('langDropdownMenu').classList.toggle('hidden');
+}
+document.addEventListener('click', function (e) {
+    const wrapper = document.getElementById('langDropdownWrapper');
+    if (!wrapper.contains(e.target)) {
+        document.getElementById('langDropdownMenu').classList.add('hidden');
+    }
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        document.getElementById('langDropdownMenu').classList.add('hidden');
+    }
+});
+</script>

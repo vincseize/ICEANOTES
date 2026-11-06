@@ -16,3 +16,6 @@ Notes	Tout voir, tout ajouter	Voit ses notes, ajoute seulement pour ses matière
 Accueil	Tout voir	Voit ses notes
 Étudiants	Tout voir	Voit ses étudiants (ceux qui ont une note dans ses matières)
 Professeurs / Filières / Diplômes / Promos	Accès	❌ redirigés
+
+
+http://127.0.0.1/ICEANOTES/_SANDBOX/reset_password.php

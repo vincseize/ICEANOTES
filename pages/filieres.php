@@ -8,24 +8,45 @@ requireAdmin();
 $pdo = getDB();
 $msg = '';
 
+// --- AJAX : réordonnancement ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
+    header('Content-Type: application/json');
+    $ids = json_decode($_POST['ids'] ?? '[]', true);
+    if (!is_array($ids) || empty($ids)) {
+        echo json_encode(['ok' => false, 'error' => 'IDs invalides']);
+        exit;
+    }
+    try {
+        $stmt = $pdo->prepare("UPDATE filieres SET ordre = ? WHERE id = ?");
+        foreach ($ids as $i => $id) {
+            $stmt->execute([($i + 1) * 10, (int)$id]);
+        }
+        echo json_encode(['ok' => true]);
+    } catch (PDOException $e) {
+        echo json_encode(['ok' => false, 'error' => 'Erreur BDD']);
+    }
+    exit;
+}
+
 // --- Ajout / Édition ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
+    $action  = $_POST['action'] ?? '';
     if (in_array($action, ['add', 'edit'], true)) {
-        $nom       = trim($_POST['nom'] ?? '');
-        $sectionId = (int)($_POST['section_id'] ?? 0);
-        $actif     = isset($_POST['actif']) ? 1 : 0;
-        $id        = (int)($_POST['id'] ?? 0);
+        $nom     = trim($_POST['nom'] ?? '');
+        $ecoleId = (int)($_POST['ecole_id'] ?? 0);
+        $actif   = isset($_POST['actif']) ? 1 : 0;
+        $id      = (int)($_POST['id'] ?? 0);
 
-        if ($nom !== '' && $sectionId > 0) {
+        if ($nom !== '' && $ecoleId > 0) {
             try {
                 if ($action === 'add') {
-                    $pdo->prepare("INSERT INTO filieres (nom, section_id, actif) VALUES (?, ?, ?)")
-                        ->execute([$nom, $sectionId, $actif]);
+                    $nextOrdre = (int)$pdo->query("SELECT COALESCE(MAX(ordre), 0) + 10 FROM filieres")->fetchColumn();
+                    $pdo->prepare("INSERT INTO filieres (nom, ordre, ecole_id, actif) VALUES (?, ?, ?, ?)")
+                        ->execute([$nom, $nextOrdre, $ecoleId, $actif]);
                     redirect('/ICEANOTES/pages/filieres.php?ok=add');
                 } else {
-                    $pdo->prepare("UPDATE filieres SET nom=?, section_id=?, actif=? WHERE id=?")
-                        ->execute([$nom, $sectionId, $actif, $id]);
+                    $pdo->prepare("UPDATE filieres SET nom=?, ecole_id=?, actif=? WHERE id=?")
+                        ->execute([$nom, $ecoleId, $actif, $id]);
                     redirect('/ICEANOTES/pages/filieres.php?ok=edit');
                 }
             } catch (PDOException $e) {
@@ -51,7 +72,7 @@ if (isset($_GET['delete'])) {
     }
 }
 
-// --- Édition ---
+// --- Édition ? ---
 $editRow = null;
 if (isset($_GET['edit'])) {
     $stmt = $pdo->prepare("SELECT * FROM filieres WHERE id = ?");
@@ -60,15 +81,21 @@ if (isset($_GET['edit'])) {
 }
 
 // --- Liste ---
-[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
+[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(100));
 
+$sort = $sort ?: 'ordre';
 $sortable = [
-    'nom'     => 'f.nom',
-    'section' => 's.nom',
-    'actif'   => 'f.actif',
+    'nom'   => 'f.nom',
+    'ecole' => 'e.nom',
+    'actif' => 'f.actif',
 ];
-$orderBy = $sortable[$sort] ?? 's.nom, f.nom';
-if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
+if (!isset($sortable[$sort])) $sort = 'ordre';
+
+if ($sort === 'ordre') {
+    $orderBy = 'f.ordre ASC, f.nom ASC';
+} else {
+    $orderBy = $sortable[$sort] . " $dir";
+}
 
 $where  = ['1=1'];
 $params = [];
@@ -80,18 +107,18 @@ $whereSql = implode(' AND ', $where);
 
 $stmt = $pdo->prepare("
     SELECT COUNT(*) FROM filieres f
-    JOIN sections s ON s.id = f.section_id
+    JOIN ecoles e ON e.id = f.ecole_id
     WHERE $whereSql
 ");
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
-    SELECT f.*, s.nom AS section,
+    SELECT f.*, e.nom AS ecole,
            (SELECT COUNT(*) FROM promotions p WHERE p.filiere_id = f.id) AS nb_promotions,
            (SELECT COUNT(*) FROM modules m WHERE m.filiere_id = f.id) AS nb_modules
     FROM filieres f
-    JOIN sections s ON s.id = f.section_id
+    JOIN ecoles e ON e.id = f.ecole_id
     WHERE $whereSql
     ORDER BY $orderBy
     LIMIT $perPage OFFSET $offset
@@ -99,7 +126,9 @@ $stmt = $pdo->prepare("
 $stmt->execute($params);
 $filieres = $stmt->fetchAll();
 
-$sections = $pdo->query("SELECT * FROM sections ORDER BY nom")->fetchAll();
+$ecoles = $pdo->query("SELECT * FROM ecoles ORDER BY nom")->fetchAll();
+
+$dragEnabled = ($search === '' && $sort === 'ordre');
 
 require_once BASE_PATH . '/includes/header.php';
 ?>
@@ -123,10 +152,10 @@ require_once BASE_PATH . '/includes/header.php';
            value="<?= $editRow ? e($editRow['nom']) : '' ?>"
            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
 
-    <select name="section_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <?php foreach ($sections as $s): ?>
-            <option value="<?= $s['id'] ?>" <?= $editRow && $editRow['section_id'] == $s['id'] ? 'selected' : '' ?>>
-                <?= e($s['nom']) ?>
+    <select name="ecole_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <?php foreach ($ecoles as $e): ?>
+            <option value="<?= $e['id'] ?>" <?= $editRow && $editRow['ecole_id'] == $e['id'] ? 'selected' : '' ?>>
+                <?= e($e['nom']) ?>
             </option>
         <?php endforeach; ?>
     </select>
@@ -166,21 +195,31 @@ require_once BASE_PATH . '/includes/header.php';
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
+                    <th class="w-10"></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('filiere_nom'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('section', t('section'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('ecole', 'École', $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= t('promotions_count') ?></th>
                     <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            <tbody id="sortableBody" class="divide-y divide-gray-100">
             <?php if (empty($filieres)): ?>
-                <tr><td colspan="6" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="7" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($filieres as $f): ?>
-                <tr class="hover:bg-gray-50 transition <?= $f['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                <tr data-id="<?= (int)$f['id'] ?>" class="hover:bg-gray-50 transition <?= $f['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                    <td class="px-2 py-3 text-gray-400 <?= $dragEnabled ? 'cursor-move drag-handle' : '' ?>">
+                        <?php if ($dragEnabled): ?>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+                                <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+                                <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+                            </svg>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-4 py-3 font-medium"><?= e($f['nom']) ?></td>
-                    <td class="px-4 py-3"><?= e($f['section']) ?></td>
+                    <td class="px-4 py-3"><?= e($f['ecole']) ?></td>
                     <td class="px-4 py-3 text-center"><?= $f['nb_promotions'] ?></td>
                     <td class="px-4 py-3 text-center"><?= $f['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
@@ -229,7 +268,7 @@ require_once BASE_PATH . '/includes/header.php';
 <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
     <div>
         <select id="perPageSelect"
-                class="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                class="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 cursor-pointer">
             <?php foreach ([10, 20, 50, 100] as $n): ?>
                 <option value="<?= e($buildPerPageUrl($n)) ?>" <?= $perPage == $n ? 'selected' : '' ?>>
                     <?= $n ?> / page
@@ -267,31 +306,57 @@ require_once BASE_PATH . '/includes/header.php';
     <?php endif; ?>
 </div>
 
+<!-- SortableJS -->
+<?php if ($dragEnabled && $total > 1): ?>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(function () {
+    const tbody = document.getElementById('sortableBody');
+    if (!tbody || typeof Sortable === 'undefined') return;
+
+    Sortable.create(tbody, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'bg-blue-50',
+        chosenClass: 'bg-blue-100',
+        dragClass: 'opacity-50',
+        onEnd: function (evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            const ids = Array.from(tbody.querySelectorAll('tr[data-id]'))
+                .map(tr => tr.getAttribute('data-id'));
+            const body = new URLSearchParams();
+            body.append('action', 'reorder');
+            body.append('ids', JSON.stringify(ids));
+            fetch(window.location.pathname, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(r => r.json())
+            .then(data => { if (!data.ok) console.error('Erreur sauvegarde ordre'); })
+            .catch(err => console.error(err));
+        }
+    });
+})();
+</script>
+<?php endif; ?>
+
 <script>
 (function () {
     const search  = document.getElementById('searchInput');
     const perPage = document.getElementById('perPageSelect');
-
     let searchTimeout = null;
-
-    // Recherche live
     if (search) {
         search.addEventListener('input', function () {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(function () {
                 const url = new URL(window.location.href);
-                if (search.value === '') {
-                    url.searchParams.delete('q');
-                } else {
-                    url.searchParams.set('q', search.value);
-                }
+                search.value === '' ? url.searchParams.delete('q') : url.searchParams.set('q', search.value);
                 url.searchParams.delete('page');
                 window.location.href = url.toString();
             }, 400);
         });
     }
-
-    // per_page
     if (perPage) {
         perPage.addEventListener('change', function () {
             window.location.href = this.value;

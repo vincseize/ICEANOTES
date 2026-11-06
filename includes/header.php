@@ -21,14 +21,12 @@ $flags = [
 ];
 $currentFlag = $flags[$lang] ?? $flags['fr'];
 
-// --- Initiales de l'utilisateur ---
 $initiales = strtoupper(
     mb_substr($user['prenom'] ?? '', 0, 1) .
     mb_substr($user['nom']    ?? '', 0, 1)
 );
 if ($initiales === '') $initiales = '?';
 
-// --- Couleur selon le type ---
 $typeLabel = $user['type_label'] ?? 'user';
 $avatarColor = match($typeLabel) {
     'admin'       => 'bg-purple-600 text-white',
@@ -74,8 +72,9 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                     <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
 
                     <?php if ($isSuperviseur): ?>
-                        <a href="/ICEANOTES/pages/filieres.php" class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                        <a href="/ICEANOTES/pages/promotions.php" class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
+                        <a href="/ICEANOTES/pages/ecoles.php"      class="<?= navClass('ecoles.php', $current) ?>">Ecole</a>
+                        <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
+                        <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
                     <?php endif; ?>
 
                     <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
@@ -85,8 +84,7 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                     <?php endif; ?>
 
                     <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-
-                    <a href="/ICEANOTES/pages/notes.php" class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+                    <a href="/ICEANOTES/pages/notes.php"     class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
 
                     <?php if ($isSuperviseur): ?>
                         <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>
@@ -101,7 +99,7 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                 </div>
             </div>
 
-            <div class="flex items-center gap-2 sm:gap-3">
+            <div class="flex items-center gap-3">
                 <div class="flex items-center gap-2" title="<?= e($user['prenom'] . ' ' . $user['nom'] . ' — ' . $user['email']) ?>">
                     <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-xs font-medium <?= $typeBadgeColor ?>">
                         <?= e($typeBadgeLabel) ?>
@@ -111,9 +109,7 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
                     </div>
                 </div>
 
-                <!-- Déconnexion : icône seule partout -->
-                <a href="/ICEANOTES/logout.php"
-                   title="<?= e(t('logout')) ?>"
+                <a href="/ICEANOTES/logout.php" title="<?= e(t('logout')) ?>"
                    class="bg-red-500 hover:bg-red-600 text-white px-2 py-1.5 rounded-lg transition flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
@@ -156,8 +152,9 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
             <a href="/ICEANOTES/pages/accueil.php" class="<?= navClass('accueil.php', $current) ?>"><?= t('nav_home') ?></a>
 
             <?php if ($isSuperviseur): ?>
-                <a href="/ICEANOTES/pages/filieres.php" class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
-                <a href="/ICEANOTES/pages/promotions.php" class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
+                <a href="/ICEANOTES/pages/ecoles.php"      class="<?= navClass('ecoles.php', $current) ?>">Ecole</a>
+                <a href="/ICEANOTES/pages/filieres.php"    class="<?= navClass('filieres.php', $current) ?>"><?= t('nav_filieres') ?></a>
+                <a href="/ICEANOTES/pages/promotions.php"  class="<?= navClass('promotions.php', $current) ?>"><?= t('nav_promotions') ?></a>
             <?php endif; ?>
 
             <a href="/ICEANOTES/pages/modules.php" class="<?= navClass('modules.php', $current) ?>"><?= t('nav_modules') ?></a>
@@ -167,8 +164,7 @@ $typeBadgeLabel = t('type_' . ($typeLabel === 'professeur' ? 'user' : $typeLabel
             <?php endif; ?>
 
             <a href="/ICEANOTES/pages/etudiants.php" class="<?= navClass('etudiants.php', $current) ?>"><?= t('nav_etudiants') ?></a>
-
-            <a href="/ICEANOTES/pages/notes.php" class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
+            <a href="/ICEANOTES/pages/notes.php"     class="<?= navClass('notes.php', $current) ?>"><?= t('nav_notes') ?></a>
 
             <?php if ($isSuperviseur): ?>
                 <a href="/ICEANOTES/pages/note_types.php" class="<?= navClass('note_types.php', $current) ?>"><?= t('nav_note_types') ?></a>

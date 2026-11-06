@@ -11,6 +11,28 @@ $myId = (int)$me['id'];
 $pdo = getDB();
 $msg = '';
 
+// --- AJAX : réordonnancement ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
+    header('Content-Type: application/json');
+
+    $ids = json_decode($_POST['ids'] ?? '[]', true);
+    if (!is_array($ids) || empty($ids)) {
+        echo json_encode(['ok' => false, 'error' => 'IDs invalides']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("UPDATE modules SET ordre = ? WHERE id = ?");
+        foreach ($ids as $i => $id) {
+            $stmt->execute([($i + 1) * 10, (int)$id]);
+        }
+        echo json_encode(['ok' => true]);
+    } catch (PDOException $e) {
+        echo json_encode(['ok' => false, 'error' => 'Erreur BDD']);
+    }
+    exit;
+}
+
 // --- Ajout / Édition ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -47,10 +69,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$msg) {
                 if ($action === 'add') {
+                    $nextOrdre = (int)$pdo->query("SELECT COALESCE(MAX(ordre), 0) + 10 FROM modules")->fetchColumn();
                     $pdo->prepare("
-                        INSERT INTO modules (nom, niveau, filiere_id, professeur_id, actif)
-                        VALUES (?, ?, ?, ?, ?)
-                    ")->execute([$nom, $niveau, $filiereId, $profId, $actif]);
+                        INSERT INTO modules (nom, niveau, filiere_id, professeur_id, ordre, actif)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ")->execute([$nom, $niveau, $filiereId, $profId, $nextOrdre, $actif]);
                     redirect('/ICEANOTES/pages/modules.php?ok=add');
                 } else {
                     $pdo->prepare("
@@ -105,7 +128,7 @@ if (isset($_GET['edit'])) {
 }
 
 // --- Liste ---
-[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
+[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(100));
 
 $sortable = [
     'nom'     => 'm.nom',
@@ -114,7 +137,7 @@ $sortable = [
     'prof'    => 'u.nom, u.prenom',
     'actif'   => 'm.actif',
 ];
-$orderBy = $sortable[$sort] ?? 'm.niveau, f.nom, m.nom';
+$orderBy = $sortable[$sort] ?? 'm.ordre ASC, m.nom';
 if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
 
 $where  = ['1=1'];
@@ -175,6 +198,9 @@ $profs = $isSuperviseur ? $pdo->query("
         u.nom, u.prenom
 ")->fetchAll() : [];
 
+// Drag activé seulement si pas de recherche + tri par ordre
+$dragEnabled = ($search === '' && (!$sort || $sort === 'ordre'));
+
 require_once BASE_PATH . '/includes/header.php';
 ?>
 
@@ -190,54 +216,76 @@ require_once BASE_PATH . '/includes/header.php';
 <?php if ($msg): ?><div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div><?php endif; ?>
 <?php if (isset($_GET['ok'])): ?><div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div><?php endif; ?>
 
+<!-- Formulaire ajout / édition avec labels -->
 <form method="POST" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 grid sm:grid-cols-12 gap-3 items-start">
     <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
     <?php if ($editRow): ?><input type="hidden" name="id" value="<?= $editRow['id'] ?>"><?php endif; ?>
 
-    <input type="text" name="nom" required placeholder="<?= e(t('module_nom')) ?>"
-           value="<?= $editRow ? e($editRow['nom']) : '' ?>"
-           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-3">
+    <div class="sm:col-span-4">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('module_nom')) ?></label>
+        <input type="text" name="nom" required placeholder="Maths, Physique…"
+               value="<?= $editRow ? e($editRow['nom']) : '' ?>"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+    </div>
 
-    <select name="niveau" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
-        <option value="">— <?= t('niveau') ?> —</option>
-        <?php foreach ($niveaux as $n): ?>
-            <option value="<?= $n ?>" <?= $editRow && $editRow['niveau'] === $n ? 'selected' : '' ?>><?= e($n) ?></option>
-        <?php endforeach; ?>
-    </select>
-
-    <select name="filiere_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
-        <option value="">— <?= t('filiere') ?> —</option>
-        <?php foreach ($filieres as $f): ?>
-            <option value="<?= $f['id'] ?>" <?= $editRow && $editRow['filiere_id'] == $f['id'] ? 'selected' : '' ?>><?= e($f['nom']) ?></option>
-        <?php endforeach; ?>
-    </select>
-
-    <?php if ($isSuperviseur): ?>
-        <select name="professeur_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
-            <option value="">— <?= t('professeur') ?> —</option>
-            <?php foreach ($profs as $p):
-                $typeLabel = t('type_' . ($p['type_label'] === 'professeur' ? 'user' : $p['type_label']));
-            ?>
-                <option value="<?= $p['id'] ?>" <?= $editRow && $editRow['professeur_id'] == $p['id'] ? 'selected' : '' ?>>
-                    <?= e($p['prenom'] . ' ' . $p['nom']) ?> (<?= e($typeLabel) ?>)
-                </option>
+    <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('niveau')) ?></label>
+        <select name="niveau" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <option value="">—</option>
+            <?php foreach ($niveaux as $n): ?>
+                <option value="<?= $n ?>" <?= $editRow && $editRow['niveau'] === $n ? 'selected' : '' ?>><?= e($n) ?></option>
             <?php endforeach; ?>
         </select>
+    </div>
+
+    <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('filiere')) ?></label>
+        <select name="filiere_id" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <option value="">—</option>
+            <?php foreach ($filieres as $f): ?>
+                <option value="<?= $f['id'] ?>" <?= $editRow && $editRow['filiere_id'] == $f['id'] ? 'selected' : '' ?>><?= e($f['nom']) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
+    <?php if ($isSuperviseur): ?>
+        <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('professeur')) ?></label>
+            <select name="professeur_id" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <option value="">—</option>
+                <?php foreach ($profs as $p):
+                    $typeLabel = t('type_' . ($p['type_label'] === 'professeur' ? 'user' : $p['type_label']));
+                ?>
+                    <option value="<?= $p['id'] ?>" <?= $editRow && $editRow['professeur_id'] == $p['id'] ? 'selected' : '' ?>>
+                        <?= e($p['prenom'] . ' ' . $p['nom']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
     <?php else: ?>
-        <div class="px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-sm text-gray-600 sm:col-span-2">
-            <strong><?= e($me['prenom'] . ' ' . $me['nom']) ?></strong>
+        <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('professeur')) ?></label>
+            <div class="px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-sm text-gray-600">
+                <strong><?= e($me['prenom'] . ' ' . $me['nom']) ?></strong>
+            </div>
         </div>
     <?php endif; ?>
 
-    <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none px-3 py-2 sm:col-span-1">
-        <input type="checkbox" name="actif" value="1" <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
-               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-        <?= t('active') ?>
-    </label>
+    <div class="sm:col-span-1">
+        <label class="block text-xs font-medium text-gray-600 mb-1">&nbsp;</label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer select-none px-2 py-2">
+            <input type="checkbox" name="actif" value="1" <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
+                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            <?= t('active') ?>
+        </label>
+    </div>
 
-    <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg sm:col-span-2">
-        <?= $editRow ? t('save') : t('add') ?>
-    </button>
+    <div class="sm:col-span-1">
+        <label class="block text-xs font-medium text-gray-600 mb-1">&nbsp;</label>
+        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">
+            <?= $editRow ? t('save') : t('add') ?>
+        </button>
+    </div>
 
     <?php if ($editRow): ?>
         <a href="/ICEANOTES/pages/modules.php" class="text-sm text-gray-500 px-3 py-2 hover:underline text-center sm:col-span-12"><?= t('cancel') ?></a>
@@ -263,6 +311,7 @@ require_once BASE_PATH . '/includes/header.php';
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
+                    <th class="w-10"></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('module_nom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('niveau', t('niveau'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
@@ -271,9 +320,9 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            <tbody id="sortableBody" class="divide-y divide-gray-100">
             <?php if (empty($modules)): ?>
-                <tr><td colspan="6" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="7" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($modules as $m): ?>
                 <?php
                     $profType = t('type_' . ($m['prof_type'] === 'professeur' ? 'user' : $m['prof_type']));
@@ -284,7 +333,17 @@ require_once BASE_PATH . '/includes/header.php';
                         default       => 'bg-gray-100 text-gray-600',
                     };
                 ?>
-                <tr class="hover:bg-gray-50 transition <?= $m['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                <tr data-id="<?= (int)$m['id'] ?>" class="hover:bg-gray-50 transition <?= $m['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                    <td class="px-2 py-3 text-gray-400 <?= $dragEnabled ? 'cursor-move drag-handle' : '' ?>"
+                        title="<?= $dragEnabled ? 'Glisser pour réordonner' : '' ?>">
+                        <?php if ($dragEnabled): ?>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+                                <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+                                <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+                            </svg>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-4 py-3 font-medium"><?= e($m['nom']) ?></td>
                     <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($m['niveau']) ?></span></td>
                     <td class="px-4 py-3">
@@ -375,6 +434,46 @@ require_once BASE_PATH . '/includes/header.php';
         </div>
     <?php endif; ?>
 </div>
+
+<!-- SortableJS -->
+<?php if ($dragEnabled && $total > 1): ?>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(function () {
+    const tbody = document.getElementById('sortableBody');
+    if (!tbody || typeof Sortable === 'undefined') return;
+
+    Sortable.create(tbody, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'bg-blue-50',
+        chosenClass: 'bg-blue-100',
+        dragClass: 'opacity-50',
+        onEnd: function (evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+
+            const ids = Array.from(tbody.querySelectorAll('tr[data-id]'))
+                .map(tr => tr.getAttribute('data-id'));
+
+            const body = new URLSearchParams();
+            body.append('action', 'reorder');
+            body.append('ids', JSON.stringify(ids));
+
+            fetch(window.location.pathname, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) console.error('Erreur sauvegarde ordre');
+            })
+            .catch(err => console.error(err));
+        }
+    });
+})();
+</script>
+<?php endif; ?>
 
 <script>
 (function () {

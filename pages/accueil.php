@@ -9,6 +9,7 @@ $isSuperviseur = isSuperviseur();
 $myId = (int)$me['id'];
 
 // --- Filtres ---
+$filterEcole   = (int)($_GET['ecole'] ?? 0);
 $filterFiliere = (int)($_GET['filiere'] ?? 0);
 $filterNiveau  = trim($_GET['niveau'] ?? '');
 $filterPromo   = (int)($_GET['promo'] ?? 0);
@@ -40,6 +41,7 @@ if ($search !== '') {
     $like = "%$search%";
     array_push($params, $like, $like, $like, $like, $like);
 }
+if ($filterEcole)   { $where[] = "ec2.id = ?"; $params[] = $filterEcole; }
 if ($filterFiliere) { $where[] = "f.id = ?"; $params[] = $filterFiliere; }
 if ($filterNiveau)  { $where[] = "p.nom = ?"; $params[] = $filterNiveau; }
 if ($filterPromo)   { $where[] = "p.id = ?"; $params[] = $filterPromo; }
@@ -52,6 +54,7 @@ $stmt = $pdo->prepare("
     JOIN etudiants e ON e.id = n.etudiant_id
     JOIN promotions p ON p.id = e.promotion_id
     JOIN filieres f ON f.id = p.filiere_id
+    JOIN ecoles ec2 ON ec2.id = f.ecole_id
     JOIN modules m ON m.id = n.module_id
     JOIN note_types nt ON nt.id = n.note_type_id
     WHERE $whereSql
@@ -65,6 +68,7 @@ $stmt = $pdo->prepare("
            e.nom AS etu_nom, e.prenom AS etu_prenom,
            p.nom AS niveau, p.promo, p.annee,
            f.nom AS filiere,
+           ec2.nom AS ecole, ec2.id AS ecole_id, ec2.color AS ecole_color,
            m.nom AS module,
            nt.nom AS type_nom, nt.sur AS type_sur, nt.coef AS type_coef,
            u.nom AS prof_nom, u.prenom AS prof_prenom
@@ -72,6 +76,7 @@ $stmt = $pdo->prepare("
     JOIN etudiants e ON e.id = n.etudiant_id
     JOIN promotions p ON p.id = e.promotion_id
     JOIN filieres f ON f.id = p.filiere_id
+    JOIN ecoles ec2 ON ec2.id = f.ecole_id
     JOIN modules m ON m.id = n.module_id
     JOIN note_types nt ON nt.id = n.note_type_id
     JOIN users u ON u.id = m.professeur_id
@@ -91,18 +96,71 @@ $promotions = $pdo->query("
 ")->fetchAll();
 $noteTypes = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
 
-$hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo || $filterType;
+// --- Écoles (avec comptage de notes dans le périmètre visible) ---
+$ecoleWhere = [];
+$ecoleParams = [];
+if (!$isSuperviseur) { $ecoleWhere[] = "m.professeur_id = ?"; $ecoleParams[] = $myId; }
+$ecoleWhereSql = $ecoleWhere ? 'WHERE ' . implode(' AND ', $ecoleWhere) : '';
+
+$stmtEcoles = $pdo->prepare("
+    SELECT ec.id, ec.nom, ec.color, COUNT(n.id) AS nb_notes
+    FROM ecoles ec
+    LEFT JOIN filieres f  ON f.ecole_id = ec.id
+    LEFT JOIN promotions p ON p.filiere_id = f.id
+    LEFT JOIN etudiants e  ON e.promotion_id = p.id
+    LEFT JOIN modules m    ON m.filiere_id = f.id
+    LEFT JOIN notes n      ON n.etudiant_id = e.id AND n.module_id = m.id
+    $ecoleWhereSql
+    GROUP BY ec.id, ec.nom, ec.color
+    ORDER BY ec.nom
+");
+$stmtEcoles->execute($ecoleParams);
+$ecoles = $stmtEcoles->fetchAll();
+
+$hasFilters = $search !== '' || $filterEcole || $filterFiliere || $filterNiveau || $filterPromo || $filterType;
+
+// URL sans école (pour désactiver le filtre en recliquant sur le badge actif)
+$urlSansEcole = $_GET;
+unset($urlSansEcole['ecole'], $urlSansEcole['page']);
+$urlSansEcole = '?' . http_build_query($urlSansEcole);
 ?>
 
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
-    <div>
-        <h1 class="text-2xl font-bold text-gray-800">
-            <?= $isSuperviseur ? t('accueil_title') : t('accueil_title_prof') ?>
-        </h1>
+<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-6 gap-3">
+    <div class="flex-1">
+        <div class="flex items-center flex-wrap gap-3 mb-2">
+            <h1 class="text-2xl font-bold text-gray-800">
+                <?= $isSuperviseur ? t('accueil_title') : t('accueil_title_prof') ?>
+            </h1>
+
+            <!-- 🏫 Badges écoles cliquables (clic sur actif = désactive) -->
+            <div class="flex flex-wrap items-center gap-1.5">
+                <?php foreach ($ecoles as $ec):
+                    $isActive = ($filterEcole === (int)$ec['id']);
+                    $color = $ec['color'] ?: '#3b82f6';
+                    $urlEcole = $isActive
+                        ? $urlSansEcole
+                        : '?' . http_build_query(array_merge($_GET, ['ecole' => $ec['id'], 'page' => null]));
+                ?>
+                    <a href="<?= e($urlEcole) ?>"
+                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition
+                              <?= $isActive
+                                    ? 'text-white border-transparent shadow-sm'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' ?>"
+                       <?php if ($isActive): ?>style="background-color: <?= e($color) ?>;"<?php else: ?>style="border-left: 3px solid <?= e($color) ?>;"<?php endif; ?>
+                       title="<?= e($ec['nom']) ?> — <?= (int)$ec['nb_notes'] ?> note(s)<?= $isActive ? ' (cliquer pour désactiver)' : '' ?>">
+                        <span class="w-2 h-2 rounded-full"
+                              style="background-color: <?= $isActive ? '#fff' : e($color) ?>;"></span>
+                        <?= e($ec['nom']) ?>
+                        <span class="text-[10px] font-normal opacity-70">(<?= (int)$ec['nb_notes'] ?>)</span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </div>
         <p class="text-sm text-gray-500"><?= t('notes_total', ['n' => $total]) ?></p>
     </div>
+
     <a href="/ICEANOTES/pages/notes.php"
-       class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg text-center">
+       class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg text-center shrink-0">
         <?= t('add_note') ?>
     </a>
 </div>
@@ -165,6 +223,7 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
                     <th class="text-left px-4 py-3"><?= sortLink('etu', t('etudiant'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('niveau', t('niveau'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= t('ecole') ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('module', t('module'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= t('professeur') ?></th>
@@ -175,7 +234,7 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
             </thead>
             <tbody class="divide-y divide-gray-100">
             <?php if (empty($notes)): ?>
-                <tr><td colspan="9" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="10" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($notes as $n): ?>
                 <?php
                     $sur20 = ((float)$n['valeur'] / (float)$n['type_sur']) * 20;
@@ -185,6 +244,13 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
                     <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_prenom'] . ' ' . $n['etu_nom']) ?></td>
                     <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($n['niveau']) ?></span></td>
                     <td class="px-4 py-3"><?= $n['promo'] ? e($n['promo']) : '<span class="text-gray-400 italic text-xs">(sans promo)</span>' ?></td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium"
+                              style="background-color: <?= e($n['ecole_color']) ?>15; color: <?= e($n['ecole_color']) ?>;">
+                            <span class="w-1.5 h-1.5 rounded-full" style="background-color: <?= e($n['ecole_color']) ?>;"></span>
+                            <?= e($n['ecole']) ?>
+                        </span>
+                    </td>
                     <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= e($n['filiere']) ?></span></td>
                     <td class="px-4 py-3"><?= e($n['module']) ?></td>
                     <td class="px-4 py-3 text-gray-500"><?= e($n['prof_prenom'] . ' ' . $n['prof_nom']) ?></td>

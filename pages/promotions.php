@@ -8,12 +8,33 @@ requireSuperviseur();
 $pdo = getDB();
 $msg = '';
 
+// --- AJAX : réordonnancement ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
+    header('Content-Type: application/json');
+
+    $ids = json_decode($_POST['ids'] ?? '[]', true);
+    if (!is_array($ids) || empty($ids)) {
+        echo json_encode(['ok' => false, 'error' => 'IDs invalides']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("UPDATE promotions SET ordre = ? WHERE id = ?");
+        foreach ($ids as $i => $id) {
+            $stmt->execute([($i + 1) * 10, (int)$id]);
+        }
+        echo json_encode(['ok' => true]);
+    } catch (PDOException $e) {
+        echo json_encode(['ok' => false, 'error' => 'Erreur BDD']);
+    }
+    exit;
+}
+
 // --- Ajout / Édition ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     if (in_array($action, ['add', 'edit'], true)) {
         $nom       = trim($_POST['nom'] ?? '');
-        $ordre     = (int)($_POST['ordre'] ?? 0);
         $promo     = trim($_POST['promo'] ?? '');
         $annee     = trim($_POST['annee'] ?? '');
         $filiereId = (int)($_POST['filiere_id'] ?? 0);
@@ -32,16 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$msg) {
                 try {
                     if ($action === 'add') {
+                        $nextOrdre = (int)$pdo->query("SELECT COALESCE(MAX(ordre), 0) + 10 FROM promotions")->fetchColumn();
                         $pdo->prepare("
                             INSERT INTO promotions (nom, ordre, promo, annee, filiere_id, actif)
                             VALUES (?, ?, ?, ?, ?, ?)
-                        ")->execute([$nom, $ordre, $promo, $annee, $filiereId, $actif]);
+                        ")->execute([$nom, $nextOrdre, $promo, $annee, $filiereId, $actif]);
                         redirect('/ICEANOTES/pages/promotions.php?ok=add');
                     } else {
                         $pdo->prepare("
-                            UPDATE promotions SET nom=?, ordre=?, promo=?, annee=?, filiere_id=?, actif=?
+                            UPDATE promotions SET nom=?, promo=?, annee=?, filiere_id=?, actif=?
                             WHERE id=?
-                        ")->execute([$nom, $ordre, $promo, $annee, $filiereId, $actif, $id]);
+                        ")->execute([$nom, $promo, $annee, $filiereId, $actif, $id]);
                         redirect('/ICEANOTES/pages/promotions.php?ok=edit');
                     }
                 } catch (PDOException $e) {
@@ -77,11 +99,10 @@ if (isset($_GET['edit'])) {
 }
 
 // --- Liste ---
-[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
+[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(100));
 
 $sortable = [
     'nom'     => 'p.nom',
-    'ordre'   => 'p.ordre',
     'promo'   => 'p.promo',
     'annee'   => 'p.annee',
     'filiere' => 'f.nom',
@@ -122,6 +143,9 @@ $promotions = $stmt->fetchAll();
 
 $filieres = $pdo->query("SELECT * FROM filieres WHERE actif = 1 ORDER BY nom")->fetchAll();
 
+// Drag activé seulement si pas de recherche + tri par ordre
+$dragEnabled = ($search === '' && (!$sort || $sort === 'ordre'));
+
 require_once BASE_PATH . '/includes/header.php';
 ?>
 
@@ -145,11 +169,7 @@ require_once BASE_PATH . '/includes/header.php';
 
     <input type="text" name="nom" required placeholder="<?= e(t('promotion_nom')) ?>"
            value="<?= $editRow ? e($editRow['nom']) : '' ?>"
-           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
-
-    <input type="number" name="ordre" min="0" placeholder="<?= e(t('promotion_ordre')) ?>"
-           value="<?= $editRow ? (int)$editRow['ordre'] : 0 ?>"
-           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-1">
+           class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-3">
 
     <input type="text" name="promo" placeholder="<?= e(t('promotion_promo')) ?>"
            value="<?= $editRow ? e($editRow['promo']) : '' ?>"
@@ -160,7 +180,7 @@ require_once BASE_PATH . '/includes/header.php';
            class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
 
     <select name="filiere_id" required class="px-3 py-2 border border-gray-300 rounded-lg text-sm sm:col-span-2">
-        <option value="">— <?= t('filiere') ?> —</option>
+        <option value="">— <?= e(t('filiere')) ?> —</option>
         <?php foreach ($filieres as $f): ?>
             <option value="<?= $f['id'] ?>" <?= $editRow && $editRow['filiere_id'] == $f['id'] ? 'selected' : '' ?>>
                 <?= e($f['nom']) ?>
@@ -202,8 +222,8 @@ require_once BASE_PATH . '/includes/header.php';
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
+                    <th class="w-10"></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('promotion_nom'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('ordre', t('promotion_ordre'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo_label'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('annee', t('annee'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
@@ -213,13 +233,22 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            <tbody id="sortableBody" class="divide-y divide-gray-100">
             <?php if (empty($promotions)): ?>
                 <tr><td colspan="9" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($promotions as $p): ?>
-                <tr class="hover:bg-gray-50 transition <?= $p['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                <tr data-id="<?= (int)$p['id'] ?>" class="hover:bg-gray-50 transition <?= $p['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                    <td class="px-2 py-3 text-gray-400 <?= $dragEnabled ? 'cursor-move drag-handle' : '' ?>"
+                        title="<?= $dragEnabled ? 'Glisser pour réordonner' : '' ?>">
+                        <?php if ($dragEnabled): ?>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+                                <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+                                <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+                            </svg>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-4 py-3 font-medium"><?= e($p['nom']) ?></td>
-                    <td class="px-4 py-3 text-center text-gray-600"><?= (int)$p['ordre'] ?></td>
                     <td class="px-4 py-3">
                         <?php if ($p['promo']): ?>
                             <?= e($p['promo']) ?>
@@ -318,6 +347,46 @@ require_once BASE_PATH . '/includes/header.php';
         </div>
     <?php endif; ?>
 </div>
+
+<!-- SortableJS -->
+<?php if ($dragEnabled && $total > 1): ?>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(function () {
+    const tbody = document.getElementById('sortableBody');
+    if (!tbody || typeof Sortable === 'undefined') return;
+
+    Sortable.create(tbody, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'bg-blue-50',
+        chosenClass: 'bg-blue-100',
+        dragClass: 'opacity-50',
+        onEnd: function (evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+
+            const ids = Array.from(tbody.querySelectorAll('tr[data-id]'))
+                .map(tr => tr.getAttribute('data-id'));
+
+            const body = new URLSearchParams();
+            body.append('action', 'reorder');
+            body.append('ids', JSON.stringify(ids));
+
+            fetch(window.location.pathname, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) console.error('Erreur sauvegarde ordre');
+            })
+            .catch(err => console.error(err));
+        }
+    });
+})();
+</script>
+<?php endif; ?>
 
 <script>
 (function () {

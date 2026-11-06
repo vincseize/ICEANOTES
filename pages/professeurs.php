@@ -41,7 +41,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$msg && $action === 'edit') {
-            // ⚠️ LIGNE CORRIGÉE : `)->fetchColumn()` au lieu de `")->fetchColumn()`
             $curType = $pdo->query("
                 SELECT t.label FROM users u JOIN users_types t ON t.id=u.user_type_id WHERE u.id = " . (int)$id
             )->fetchColumn();
@@ -155,14 +154,13 @@ if (isset($_GET['edit'])) {
 // --- Liste ---
 [$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(20));
 
+$sort = $sort ?: 'nom';
 $sortable = [
-    'nom'   => 'u.nom, u.prenom',
-    'email' => 'u.email',
-    'type'  => 't.label',
-    'actif' => 'u.actif',
+    'nom'  => 'u.nom, u.prenom',
+    'type' => 't.label',
 ];
-$orderBy = $sortable[$sort] ?? 'u.nom, u.prenom';
-if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
+if (!isset($sortable[$sort])) $sort = 'nom';
+$orderBy = $sortable[$sort] . " $dir";
 
 $where  = ['1=1'];
 $params = [];
@@ -251,7 +249,6 @@ require_once BASE_PATH . '/includes/header.php';
     <?php endif; ?>
 </form>
 
-<!-- Filtres en live -->
 <form method="GET" id="filterForm" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
     <input type="text" name="q" id="searchInput" value="<?= e($search) ?>"
            placeholder="<?= e(t('search')) ?>"
@@ -271,10 +268,10 @@ require_once BASE_PATH . '/includes/header.php';
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('prof_nom'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('email', t('prof_email'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= t('prof_email') ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('type', 'Type', $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= t('active') ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
@@ -338,7 +335,6 @@ require_once BASE_PATH . '/includes/header.php';
     </div>
 </div>
 
-<!-- Barre du bas : per_page + pagination -->
 <?php
     $pages = max(1, (int)ceil($total / $perPage));
     $buildPageUrl = function (int $p) use ($perPage) {

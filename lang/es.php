@@ -4,6 +4,7 @@ return [
     'logout'          => 'Cerrar sesión',
     'admin_badge'     => 'admin',
 
+    // Navegación
     'nav_home'        => 'Inicio',
     'nav_filieres'    => 'Carreras',
     'nav_promotions'  => 'Promociones',
@@ -11,13 +12,16 @@ return [
     'nav_professeurs' => 'Profesores',
     'nav_etudiants'   => 'Estudiantes',
     'nav_notes'       => 'Notas',
+    'nav_note_types'  => 'Tipos de nota',
 
+    // Tipos de usuario
     'type_admin'       => 'Administrador',
     'type_superviseur' => 'Supervisor',
     'type_user'        => 'Usuario',
     'type_guest'       => 'Invitado',
     'protected_badge'  => 'Protegido',
 
+    // Genéricos
     'filter'          => 'Filtrar',
     'reset'           => 'Reiniciar',
     'search'          => 'Buscar…',
@@ -35,6 +39,7 @@ return [
     'confirm_delete'  => '¿Confirmar eliminación? Esta acción es irreversible.',
     'confirm_delete_2'=> '¿Está seguro? Haga clic de nuevo para confirmar.',
 
+    // Login
     'login_title'          => 'Iniciar sesión',
     'login_heading'        => 'INICIAR SESIÓN',
     'login_subheading'     => 'Introduzca sus credenciales para acceder a su espacio personal.',
@@ -45,22 +50,30 @@ return [
     'login_show_password'  => 'Mostrar contraseña',
     'login_hide_password'  => 'Ocultar contraseña',
 
+    // Marca
     'app_full_name'   => 'INSTITUT CATHOLIQUE EUROPÉEN DES AMÉRIQUES',
     'app_brand'       => 'ICEA NOTES',
     'app_tagline'     => 'Su plataforma unificada para la calificación, el seguimiento y las trayectorias de los estudiantes.',
     'app_copyright'   => 'ICEANOTES. Todos los derechos reservados.',
 
+    // Inicio
     'accueil_title'     => 'Todas las notas',
     'accueil_title_prof'=> 'Mis notas',
     'notes_total'       => ':n nota(s)',
     'add_note'          => '+ Añadir una nota',
 
+    // Escuelas (badges)
+    'ecole'             => 'Escuela',
+    'ecoles'            => 'Escuelas',
+
+    // Carreras
     'filieres_title'    => 'Carreras',
     'filieres_count'    => ':n carrera(s)',
     'filiere_nom'       => 'Nombre de la carrera',
     'section'           => 'Sección',
     'promotions_count'  => 'Promociones',
 
+    // Promociones
     'promotions_title'    => 'Promociones',
     'promotions_count'    => ':n promoción(es)',
     'promotion_nom'       => 'Nivel (L1, L2, L3, Master…)',
@@ -77,6 +90,7 @@ return [
     'modules_count'       => 'Módulos',
     'etudiants_count'     => 'Estudiantes',
 
+    // Profesores
     'professeurs_title' => 'Profesores',
     'professeurs_count' => ':n profesor(es)',
     'prof_prenom'       => 'Nombre',
@@ -85,6 +99,7 @@ return [
     'prof_password'     => 'Contraseña (por defecto: icea)',
     'add_professeur'    => 'Añadir un profesor',
 
+    // Módulos
     'modules_title'       => 'Módulos',
     'modules_title_prof'  => 'Módulos — mis módulos',
     'modules_page_count'  => ':n módulo(s)',
@@ -93,12 +108,14 @@ return [
     'professeur'          => 'Profesor',
     'add_module'          => 'Añadir módulo',
 
-    'etudiants_title'   => 'Estudiantes',
+    // Estudiantes
+    'etudiants_title'      => 'Estudiantes',
     'etudiants_page_count' => ':n estudiante(s)',
-    'etudiant_prenom'   => 'Nombre',
-    'etudiant_nom'      => 'Apellido',
-    'add_etudiant'      => 'Añadir un estudiante',
+    'etudiant_prenom'      => 'Nombre',
+    'etudiant_nom'         => 'Apellido',
+    'add_etudiant'         => 'Añadir un estudiante',
 
+    // Notas
     'notes_title'       => 'Notas',
     'notes_title_prof'  => 'Notas — mis módulos',
     'notes_page_count'  => ':n nota(s)',
@@ -115,12 +132,7 @@ return [
     'error_prof_module' => 'Solo puede calificar en sus módulos.',
     'error_filiere'     => 'El módulo y el estudiante no están en la misma carrera.',
 
-    'ok_add'            => 'Añadido.',
-    'ok_edit'           => 'Actualizado.',
-    'ok_delete'         => 'Eliminado.',
-    'ok_toggle'         => 'Estado actualizado.',
-    'error_generic'     => 'Se produjo un error.',
-        'nav_note_types'         => 'Tipos de nota',
+    // Tipos de nota
     'note_types_title'       => 'Tipos de nota',
     'note_types_count'       => ':n tipo(s)',
     'note_type_nom'          => 'Nombre (ej.: CC1, Examen…)',
@@ -131,5 +143,11 @@ return [
     'moyenne'                => 'Promedio',
     'no_students_or_modules' => 'Ningún estudiante o módulo coincidente.',
     'no_module_for_level'    => 'Ningún módulo para este nivel',
-    'add_note_btn'           => 'Añadir nota',
+
+    // Estados
+    'ok_add'            => 'Añadido.',
+    'ok_edit'           => 'Actualizado.',
+    'ok_delete'         => 'Eliminado.',
+    'ok_toggle'         => 'Estado actualizado.',
+    'error_generic'     => 'Se produjo un error.',
 ];

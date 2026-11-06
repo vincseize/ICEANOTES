@@ -1,5 +1,6 @@
 <?php
 // config/database.php
+
 define('BASE_PATH', dirname(__DIR__));
 define('DB_DIR',    BASE_PATH . '/database');
 define('DB_PATH',   DB_DIR . '/iceanotes.sqlite');
@@ -46,7 +47,6 @@ function needsRehash(string $hash): bool { return password_needs_rehash($hash, p
 function redirect(string $url): void { header('Location: ' . $url); exit; }
 function e(?string $value): string { return htmlspecialchars((string)($value ?? ''), ENT_QUOTES, 'UTF-8'); }
 
-// --- Pagination helpers ---
 function listParams(int $defaultPerPage = 20): array
 {
     $page    = max(1, (int)($_GET['page'] ?? 1));
@@ -57,14 +57,34 @@ function listParams(int $defaultPerPage = 20): array
     $dir     = strtolower($_GET['dir'] ?? 'asc') === 'desc' ? 'DESC' : 'ASC';
     return compact('page', 'perPage', 'offset', 'search', 'sort', 'dir');
 }
+
 function sortLink(string $column, string $label, string $currentSort, string $currentDir): string
 {
-    $newDir = ($column === $currentSort && strtoupper($currentDir) === 'ASC') ? 'desc' : 'asc';
+    $isActive = ($column === $currentSort);
+    $newDir   = ($isActive && strtoupper($currentDir) === 'ASC') ? 'desc' : 'asc';
+
     $params = array_merge($_GET, ['sort' => $column, 'dir' => $newDir]);
     $url    = '?' . http_build_query($params);
-    $arrow  = ($column === $currentSort) ? (strtoupper($currentDir) === 'ASC' ? ' ▲' : ' ▼') : '';
-    return '<a href="' . e($url) . '" class="hover:text-blue-600">' . e($label) . $arrow . '</a>';
+
+    $linkClass = 'inline-flex items-center gap-1.5 hover:text-blue-600 transition';
+    $textClass = $isActive ? 'font-semibold text-blue-600' : '';
+
+    if ($isActive) {
+        if (strtoupper($currentDir) === 'ASC') {
+            $arrow = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>';
+        } else {
+            $arrow = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+        }
+    } else {
+        $arrow = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3l-3 4h6l-3-4zm0 14l3-4H7l3 4z"/></svg>';
+    }
+
+    return '<a href="' . e($url) . '" class="' . $linkClass . ' ' . $textClass . '">'
+         . '<span>' . e($label) . '</span>'
+         . $arrow
+         . '</a>';
 }
+
 function renderPagination(int $page, int $perPage, int $total): string
 {
     $pages = max(1, (int)ceil($total / $perPage));
@@ -88,24 +108,19 @@ function renderPagination(int $page, int $perPage, int $total): string
     $html .= '</div>';
     return $html;
 }
+
 function resetLink(string $page, int $perPage): string
 {
     return '/ICEANOTES/pages/' . $page . '?per_page=' . $perPage;
 }
 
-/**
- * Construit une URL avec les paramètres GET courants + overrides
- * Utile pour préserver les filtres (export, langue, tri, etc.)
- */
 function currentUrl(array $overrides = []): string
 {
     $params = array_merge($_GET, $overrides);
-    // Retirer les valeurs vides
     $params = array_filter($params, fn($v) => $v !== '' && $v !== null);
     return '?' . http_build_query($params);
 }
 
-// --- i18n ---
 function currentLang(): string
 {
     static $lang = null;
@@ -143,9 +158,6 @@ function t(string $key, array $vars = []): string
     return $txt;
 }
 
-/**
- * Génère les 3 icônes d'action (edit / toggle / delete)
- */
 function actionButtons(
     string $editUrl,
     string $deleteUrl,
@@ -157,13 +169,11 @@ function actionButtons(
     $btn = 'inline-flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-100 transition';
     $html = '<div class="flex items-center justify-end gap-1">';
 
-    // --- Edit ---
     $html .= '<a href="' . e($editUrl) . '" class="' . $btn . ' text-blue-600" title="' . e(t('edit')) . '">';
     $html .= '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">';
     $html .= '<path stroke-linecap="round" stroke-linejoin="round" d="M11 5h6m2 4v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6m4-3l3 3-9 9H8v-3l9-9z"/>';
     $html .= '</svg></a>';
 
-    // --- Toggle actif/inactif ---
     if ($canToggle) {
         $color = $isActive ? 'text-yellow-600' : 'text-green-600';
         $label = $isActive ? t('deactivate') : t('activate');
@@ -174,7 +184,6 @@ function actionButtons(
         $html .= '</svg></a>';
     }
 
-    // --- Delete ---
     if ($canDelete) {
         $html .= '<a href="' . e($deleteUrl) . '" class="' . $btn . ' text-red-600"';
         $html .= ' onclick="return confirm(\'' . e(t('confirm_delete')) . '\') && confirm(\'' . e(t('confirm_delete_2')) . '\')"';

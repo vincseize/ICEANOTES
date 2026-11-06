@@ -12,6 +12,7 @@ return [
     'nav_professeurs' => 'Professeurs',
     'nav_etudiants'   => 'Étudiants',
     'nav_notes'       => 'Notes',
+    'nav_note_types'  => 'Types de notes',
 
     // Types utilisateurs
     'type_admin'       => 'Administrateur',
@@ -61,6 +62,10 @@ return [
     'notes_total'       => ':n note(s)',
     'add_note'          => '+ Ajouter une note',
 
+    // Écoles (badges)
+    'ecole'             => 'École',
+    'ecoles'            => 'Écoles',
+
     // Filières
     'filieres_title'    => 'Filières',
     'filieres_count'    => ':n filière(s)',
@@ -104,11 +109,11 @@ return [
     'add_module'          => 'Ajouter le module',
 
     // Étudiants
-    'etudiants_title'   => 'Étudiants',
+    'etudiants_title'      => 'Étudiants',
     'etudiants_page_count' => ':n étudiant(s)',
-    'etudiant_prenom'   => 'Prénom',
-    'etudiant_nom'      => 'Nom',
-    'add_etudiant'      => 'Ajouter un étudiant',
+    'etudiant_prenom'      => 'Prénom',
+    'etudiant_nom'         => 'Nom',
+    'add_etudiant'         => 'Ajouter un étudiant',
 
     // Notes
     'notes_title'       => 'Notes',
@@ -127,13 +132,7 @@ return [
     'error_prof_module' => 'Vous ne pouvez noter que dans vos modules.',
     'error_filiere'     => "Le module et l'étudiant ne sont pas dans la même filière.",
 
-    // Statuts
-    'ok_add'            => 'Ajout effectué.',
-    'ok_edit'           => 'Modification effectuée.',
-    'ok_delete'         => 'Suppression effectuée.',
-    'ok_toggle'         => 'Statut mis à jour.',
-    'error_generic'     => 'Une erreur est survenue.',
-        'nav_note_types'         => 'Types de notes',
+    // Types de notes
     'note_types_title'       => 'Types de notes',
     'note_types_count'       => ':n type(s)',
     'note_type_nom'          => 'Nom (ex: CC1, Examen…)',
@@ -144,5 +143,11 @@ return [
     'moyenne'                => 'Moyenne',
     'no_students_or_modules' => 'Aucun étudiant ou module correspondant.',
     'no_module_for_level'    => 'Aucun module pour ce niveau',
-    'add_note_btn'           => 'Ajouter la note',
+
+    // Statuts
+    'ok_add'            => 'Ajout effectué.',
+    'ok_edit'           => 'Modification effectuée.',
+    'ok_delete'         => 'Suppression effectuée.',
+    'ok_toggle'         => 'Statut mis à jour.',
+    'error_generic'     => 'Une erreur est survenue.',
 ];

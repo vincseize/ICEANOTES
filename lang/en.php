@@ -6,6 +6,7 @@ return [
 
     // Navigation
     'nav_home'        => 'Home',
+    'nav_ecoles'      => 'Schools',
     'nav_filieres'    => 'Programs',
     'nav_promotions'  => 'Promotions',
     'nav_modules'     => 'Modules',

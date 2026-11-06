@@ -102,11 +102,13 @@ if (isset($_GET['edit'])) {
 [$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(100));
 
 $sortable = [
-    'nom'     => 'p.nom',
-    'promo'   => 'p.promo',
-    'annee'   => 'p.annee',
-    'filiere' => 'f.nom',
-    'actif'   => 'p.actif',
+    'nom'       => 'p.nom',
+    'promo'     => 'p.promo',
+    'annee'     => 'p.annee',
+    'filiere'   => 'f.nom',
+    'etudiants' => 'nb_etudiants',      // ← NOUVEAU (alias)
+    'modules'   => 'nb_modules',        // ← NOUVEAU (alias)
+    'actif'     => 'p.actif',
 ];
 $orderBy = $sortable[$sort] ?? 'p.ordre, f.nom, p.annee, p.promo';
 if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
@@ -227,8 +229,8 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo_label'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('annee', t('annee'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('etudiants_count') ?></th>
-                    <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('etudiants', t('etudiants_count'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('modules', t('modules_count'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
@@ -262,8 +264,8 @@ require_once BASE_PATH . '/includes/header.php';
                             <?= e($p['filiere']) ?>
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-center"><?= $p['nb_etudiants'] ?></td>
-                    <td class="px-4 py-3 text-center"><?= $p['nb_modules'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$p['nb_etudiants'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$p['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
                         <a href="?toggle=<?= $p['id'] ?>" title="<?= e($p['actif'] ? t('deactivate') : t('activate')) ?>"
                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition

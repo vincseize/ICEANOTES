@@ -89,7 +89,14 @@ if (isset($_GET['edit'])) {
 // --- Liste ---
 [$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(100));
 
-$sortable = ['nom' => 'nom', 'sur' => 'sur', 'coef' => 'coef', 'actif' => 'actif'];
+// Ajout de 'notes' (alias nb_notes)
+$sortable = [
+    'nom'   => 'nom',
+    'sur'   => 'sur',
+    'coef'  => 'coef',
+    'notes' => 'nb_notes',      // ← NOUVEAU (alias)
+    'actif' => 'actif',
+];
 $orderBy = $sortable[$sort] ?? 'ordre ASC, nom';
 if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
 
@@ -210,7 +217,7 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('note_type_nom'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('sur', t('note_type_sur'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('coef', t('note_type_coef'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('notes_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('notes', t('notes_count'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
@@ -238,7 +245,7 @@ require_once BASE_PATH . '/includes/header.php';
                     </td>
                     <td class="px-4 py-3 text-center">/ <?= (float)$tp['sur'] ?></td>
                     <td class="px-4 py-3 text-center">× <?= (float)$tp['coef'] ?></td>
-                    <td class="px-4 py-3 text-center"><?= $tp['nb_notes'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$tp['nb_notes'] ?></td>
                     <td class="px-4 py-3 text-center">
                         <a href="?toggle=<?= $tp['id'] ?>" title="<?= e($tp['actif'] ? t('deactivate') : t('activate')) ?>"
                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition

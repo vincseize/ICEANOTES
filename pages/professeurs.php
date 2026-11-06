@@ -156,8 +156,12 @@ if (isset($_GET['edit'])) {
 
 $sort = $sort ?: 'nom';
 $sortable = [
-    'nom'  => 'u.nom, u.prenom',
-    'type' => 't.label',
+    'nom'     => 'u.nom, u.prenom',           // ← tri principal (Nom Prénom)
+    'prenom'  => 'u.prenom, u.nom',           // ← NOUVEAU
+    'email'   => 'u.email',                   // ← NOUVEAU
+    'type'    => 't.label',                   // ← déjà présent
+    'modules' => 'nb_modules',                // ← NOUVEAU (alias)
+    'actif'   => 'u.actif',                   // ← NOUVEAU
 ];
 if (!isset($sortable[$sort])) $sort = 'nom';
 $orderBy = $sortable[$sort] . " $dir";
@@ -267,17 +271,18 @@ require_once BASE_PATH . '/includes/header.php';
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
+                    <th class="text-left px-4 py-3"><?= sortLink('prenom', t('prof_prenom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('prof_nom'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= t('prof_email') ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('email', t('prof_email'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('type', 'Type', $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
-                    <th class="text-center px-4 py-3"><?= t('active') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('modules', t('modules_count'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
             <?php if (empty($users)): ?>
-                <tr><td colspan="6" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="7" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($users as $u): ?>
                 <?php
                     $typeColor = match($u['type_label']) {
@@ -293,7 +298,10 @@ require_once BASE_PATH . '/includes/header.php';
                 ?>
                 <tr class="hover:bg-gray-50 transition <?= $u['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
                     <td class="px-4 py-3 font-medium">
-                        <?= e($u['prenom'] . ' ' . $u['nom']) ?>
+                        <?= e($u['prenom']) ?>
+                    </td>
+                    <td class="px-4 py-3 font-medium">
+                        <?= e($u['nom']) ?>
                         <?php if ($u['protected']): ?>
                             <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">🔒 <?= t('protected_badge') ?></span>
                         <?php endif; ?>
@@ -304,7 +312,7 @@ require_once BASE_PATH . '/includes/header.php';
                             <?= t('type_' . $u['type_label']) ?>
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-center"><?= $u['nb_modules'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$u['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
                         <?php if ($canToggle): ?>
                             <a href="?toggle=<?= $u['id'] ?>" title="<?= e($u['actif'] ? t('deactivate') : t('activate')) ?>"
@@ -313,8 +321,8 @@ require_once BASE_PATH . '/includes/header.php';
                                 <?= $u['actif'] ? '✅ ' . t('active') : '❌ ' . t('inactive') ?>
                             </a>
                         <?php else: ?>
-                            <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                                ✅ <?= t('active') ?>
+                            <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium <?= $u['actif'] ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600' ?>">
+                                <?= $u['actif'] ? '✅ ' . t('active') : '❌ ' . t('inactive') ?>
                             </span>
                         <?php endif; ?>
                     </td>

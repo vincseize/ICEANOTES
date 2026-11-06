@@ -38,14 +38,22 @@ function computeMoyenne(PDO $pdo, int $etudiantId, int $moduleId): ?float
 // --- Filtres ---
 $filterPromo  = (int)($_GET['promo'] ?? 0);
 $filterModule = (int)($_GET['module'] ?? 0);
+$filterType   = (int)($_GET['type'] ?? 0);       // ← NOUVEAU
 $search       = trim($_GET['q'] ?? '');
 
 /**
  * Construit la grille (étudiant × module) selon les filtres
  */
-function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, int $filterModule, string $search): array
+function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, int $filterModule, int $filterType, string $search): array
 {
-    $types = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
+    $typesAll = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
+
+    // Si un type est filtré → on ne garde que ce type pour l'affichage des colonnes
+    if ($filterType > 0) {
+        $types = array_values(array_filter($typesAll, fn($t) => (int)$t['id'] === $filterType));
+    } else {
+        $types = $typesAll;
+    }
 
     // Étudiants
     $etWhere = ['e.actif = 1'];
@@ -103,8 +111,17 @@ function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, i
         $inE = implode(',', array_fill(0, count($etudiantIds), '?'));
         $inM = implode(',', array_fill(0, count($moduleIds), '?'));
 
-        $stmt = $pdo->prepare("SELECT * FROM notes WHERE etudiant_id IN ($inE) AND module_id IN ($inM)");
-        $stmt->execute(array_merge($etudiantIds, $moduleIds));
+        $sqlNotes = "SELECT * FROM notes WHERE etudiant_id IN ($inE) AND module_id IN ($inM)";
+        $paramsNotes = array_merge($etudiantIds, $moduleIds);
+
+        // Si un type est filtré → on ne charge que les notes de ce type
+        if ($filterType > 0) {
+            $sqlNotes .= " AND note_type_id = ?";
+            $paramsNotes[] = $filterType;
+        }
+
+        $stmt = $pdo->prepare($sqlNotes);
+        $stmt->execute($paramsNotes);
         foreach ($stmt->fetchAll() as $n) {
             $notesMap[$n['etudiant_id']][$n['module_id']][$n['note_type_id']] = $n;
         }
@@ -151,13 +168,12 @@ function buildGrid(PDO $pdo, bool $isSuperviseur, int $myId, int $filterPromo, i
 // ============================================================================
 if (isset($_GET['export'])) {
     $format = $_GET['export'];
-    $data = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $search);
+    $data = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $filterType, $search);
     $grid = $data['grid'];
     $types = $data['types'];
 
     $filename = 'notes_' . date('Y-m-d_His');
 
-    // Lignes : colonnes fixes + dynamiques selon types actifs
     $rows = [];
     foreach ($grid as $row) {
         $et  = $row['etudiant'];
@@ -179,7 +195,6 @@ if (isset($_GET['export'])) {
         $rows[] = $line;
     }
 
-    // En-têtes lisibles (avec barème + coef)
     $headers = ['etudiant' => 'Étudiant', 'promo' => 'Promo', 'module' => 'Module'];
     foreach ($types as $tp) {
         $headers['note_' . $tp['nom']] = $tp['nom'] . ' / ' . (float)$tp['sur'] . ' (×' . (float)$tp['coef'] . ')';
@@ -215,6 +230,7 @@ if (isset($_GET['export'])) {
                 'q'      => $search,
                 'promo'  => $filterPromo,
                 'module' => $filterModule,
+                'type'   => $filterType,
             ],
             'headers' => $headers,
             'types'   => array_map(fn($t) => [
@@ -299,12 +315,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
 [$page, $perPage, $offset, $sort, $dir] = array_values(listParams(20));
 
-$data  = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $search);
+$data  = buildGrid($pdo, $isSuperviseur, $myId, $filterPromo, $filterModule, $filterType, $search);
 $grid  = $data['grid'];
 $types = $data['types'];
 
+// ============================================================================
+// Tri côté PHP (grille en mémoire)
+// ============================================================================
 $sortKeys = [
-    'etudiant' => fn($a, $b) => strcmp($a['etudiant']['nom'] . $a['etudiant']['prenom'], $b['etudiant']['nom'] . $b['etudiant']['prenom']),
+    'etudiant' => fn($a, $b) => strcmp(
+        $a['etudiant']['nom'] . $a['etudiant']['prenom'],
+        $b['etudiant']['nom'] . $b['etudiant']['prenom']
+    ),
+    'promo'    => fn($a, $b) => strcmp(
+        ($a['etudiant']['niveau'] ?? '') . '|' . ($a['etudiant']['promo'] ?? '') . '|' . ($a['etudiant']['annee'] ?? ''),
+        ($b['etudiant']['niveau'] ?? '') . '|' . ($b['etudiant']['promo'] ?? '') . '|' . ($b['etudiant']['annee'] ?? '')
+    ),
     'module'   => fn($a, $b) => strcmp($a['module']['nom'] ?? '', $b['module']['nom'] ?? ''),
     'moyenne'  => fn($a, $b) => ($a['moyenne'] ?? -1) <=> ($b['moyenne'] ?? -1),
 ];
@@ -325,6 +351,9 @@ $allModules = $pdo->query("
     SELECT m.*, f.nom AS filiere FROM modules m JOIN filieres f ON f.id = m.filiere_id
     WHERE m.actif = 1 ORDER BY m.niveau, f.nom, m.nom
 ")->fetchAll();
+
+// Types actifs pour le filtre
+$allTypes = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
 
 require_once BASE_PATH . '/includes/header.php';
 ?>
@@ -376,12 +405,22 @@ require_once BASE_PATH . '/includes/header.php';
         <option value="">— <?= t('module') ?> —</option>
         <?php foreach ($allModules as $m): ?>
             <option value="<?= $m['id'] ?>" <?= $filterModule == $m['id'] ? 'selected' : '' ?>>
-                <?= e($m['nom'] . ' (' . $m['niveau'] . ' — ' . $m['filiere'] . ')') ?>
+                <?= e($m['nom']) ?>
             </option>
         <?php endforeach; ?>
     </select>
 
-    <?php if ($search !== '' || $filterPromo || $filterModule): ?>
+    <!-- Filtre par type de note -->
+    <select name="type" id="typeSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <option value="">— <?= t('type') ?> —</option>
+        <?php foreach ($allTypes as $tp): ?>
+            <option value="<?= $tp['id'] ?>" <?= $filterType == $tp['id'] ? 'selected' : '' ?>>
+                <?= e($tp['nom']) ?> (×<?= (float)$tp['coef'] ?>)
+            </option>
+        <?php endforeach; ?>
+    </select>
+
+    <?php if ($search !== '' || $filterPromo || $filterModule || $filterType): ?>
         <a href="/ICEANOTES/pages/notes.php?per_page=<?= $perPage ?>"
            class="text-sm text-red-500 hover:text-red-700 hover:underline self-center px-3 whitespace-nowrap">
             ✕ <?= t('reset') ?>
@@ -395,7 +434,7 @@ require_once BASE_PATH . '/includes/header.php';
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
                     <th class="text-left px-4 py-3"><?= sortLink('etudiant', t('etudiant'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= t('promo') ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('module', t('module'), $sort, $dir) ?></th>
                     <?php foreach ($types as $tp): ?>
                         <th class="text-center px-3 py-3 min-w-[100px]">
@@ -579,6 +618,7 @@ require_once BASE_PATH . '/includes/header.php';
     const search = document.getElementById('searchInput');
     const promo  = document.getElementById('promoSelect');
     const module = document.getElementById('moduleSelect');
+    const type   = document.getElementById('typeSelect');
 
     let searchTimeout = null;
 
@@ -594,11 +634,15 @@ require_once BASE_PATH . '/includes/header.php';
         });
     }
 
-    [promo, module].forEach(function (sel) {
+    [promo, module, type].forEach(function (sel) {
         if (!sel) return;
         sel.addEventListener('change', function () {
             const url = new URL(window.location.href);
-            url.searchParams.set(sel.name, sel.value);
+            if (sel.value === '') {
+                url.searchParams.delete(sel.name);
+            } else {
+                url.searchParams.set(sel.name, sel.value);
+            }
             url.searchParams.delete('page');
             window.location.href = url.toString();
         });
@@ -673,7 +717,7 @@ async function submitNote(e) {
 
 function deleteNote() {
     if (!currentDeleteId) return;
-    if (!confirm('<?= e(t('confirm_delete')) ?>')) return;
+    if (!confirm('<?= t('confirm_delete') ?>')) return;
     window.location.href = '?delete_note=' + currentDeleteId;
 }
 </script>

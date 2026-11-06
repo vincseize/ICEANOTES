@@ -85,15 +85,18 @@ if (isset($_GET['edit'])) {
 
 $sort = $sort ?: 'ordre';
 $sortable = [
-    'nom'   => 'f.nom',
-    'ecole' => 'e.nom',
-    'actif' => 'f.actif',
+    'nom'         => 'f.nom',
+    'promotions'  => 'nb_promotions',     // ← NOUVEAU (alias)
+    'modules'     => 'nb_modules',        // ← NOUVEAU (alias)
+    'actif'       => 'f.actif',
+    // 'ecole' retiré (colonne supprimée)
 ];
 if (!isset($sortable[$sort])) $sort = 'ordre';
 
 if ($sort === 'ordre') {
     $orderBy = 'f.ordre ASC, f.nom ASC';
 } else {
+    // Pour les alias (nb_promotions, nb_modules), on trie par la valeur calculée
     $orderBy = $sortable[$sort] . " $dir";
 }
 
@@ -114,7 +117,7 @@ $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare("
-    SELECT f.*, e.nom AS ecole,
+    SELECT f.*,
            (SELECT COUNT(*) FROM promotions p WHERE p.filiere_id = f.id) AS nb_promotions,
            (SELECT COUNT(*) FROM modules m WHERE m.filiere_id = f.id) AS nb_modules
     FROM filieres f
@@ -197,16 +200,15 @@ require_once BASE_PATH . '/includes/header.php';
                 <tr>
                     <th class="w-10"></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('filiere_nom'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('ecole', 'École', $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= t('promotions_count') ?></th>
-                    <th class="text-center px-4 py-3"><?= t('modules_count') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('promotions', t('promotions_count'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('modules', t('modules_count'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody id="sortableBody" class="divide-y divide-gray-100">
             <?php if (empty($filieres)): ?>
-                <tr><td colspan="7" class="text-center text-gray-400 py-8">—</td></tr>
+                <tr><td colspan="6" class="text-center text-gray-400 py-8">—</td></tr>
             <?php else: foreach ($filieres as $f): ?>
                 <tr data-id="<?= (int)$f['id'] ?>" class="hover:bg-gray-50 transition <?= $f['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
                     <td class="px-2 py-3 text-gray-400 <?= $dragEnabled ? 'cursor-move drag-handle' : '' ?>">
@@ -219,9 +221,8 @@ require_once BASE_PATH . '/includes/header.php';
                         <?php endif; ?>
                     </td>
                     <td class="px-4 py-3 font-medium"><?= e($f['nom']) ?></td>
-                    <td class="px-4 py-3"><?= e($f['ecole']) ?></td>
-                    <td class="px-4 py-3 text-center"><?= $f['nb_promotions'] ?></td>
-                    <td class="px-4 py-3 text-center"><?= $f['nb_modules'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$f['nb_promotions'] ?></td>
+                    <td class="px-4 py-3 text-center"><?= (int)$f['nb_modules'] ?></td>
                     <td class="px-4 py-3 text-center">
                         <a href="?toggle=<?= $f['id'] ?>" title="<?= e($f['actif'] ? t('deactivate') : t('activate')) ?>"
                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition

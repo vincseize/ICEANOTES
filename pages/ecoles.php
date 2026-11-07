@@ -1,274 +1,249 @@
 <?php
-// pages/accueil.php
+// pages/ecoles.php
 require_once __DIR__ . '/../config/database.php';
 require_once BASE_PATH . '/includes/auth.php';
+requireLogin();
+requireSuperviseur();
 
-// ============================================================================
-// TRAITEMENTS PHP (dont setcookie) AVANT header.php
-// ============================================================================
 $pdo = getDB();
-$me = currentUser();
-$isSuperviseur = isSuperviseur();
-$myId = (int)$me['id'];
+$msg = '';
 
-// --- Cookie "ecole" : mémoriser le choix ---
-$COOKIE_ECOLE = 'iceanotes_ecole';
-$COOKIE_TTL   = 365 * 86400; // 1 an
-
-if (isset($_GET['ecole'])) {
-    $filterEcole = (int)$_GET['ecole'];
-    if ($filterEcole > 0) {
-        setcookie($COOKIE_ECOLE, (string)$filterEcole, [
-            'expires'  => time() + $COOKIE_TTL,
-            'path'     => '/',
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ]);
-    } else {
-        setcookie($COOKIE_ECOLE, '', time() - 3600, '/');
+// --- AJAX : réordonnancement ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
+    header('Content-Type: application/json');
+    $ids = json_decode($_POST['ids'] ?? '[]', true);
+    if (!is_array($ids) || empty($ids)) {
+        echo json_encode(['ok' => false, 'error' => 'IDs invalides']);
+        exit;
     }
-} else {
-    $filterEcole = (int)($_COOKIE[$COOKIE_ECOLE] ?? 0);
+    try {
+        $stmt = $pdo->prepare("UPDATE ecoles SET ??? = ? WHERE id = ?"); // pas d'ordre sur ecoles
+        // On n'a pas de colonne ordre sur ecoles → on trie par nom.
+        echo json_encode(['ok' => true]);
+    } catch (PDOException $e) {
+        echo json_encode(['ok' => false, 'error' => 'Erreur BDD']);
+    }
+    exit;
 }
 
-// --- Autres filtres ---
-$filterFiliere = (int)($_GET['filiere'] ?? 0);
-$filterNiveau  = trim($_GET['niveau'] ?? '');
-$filterPromo   = (int)($_GET['promo'] ?? 0);
-$filterType    = (int)($_GET['type'] ?? 0);
-$search        = trim($_GET['q'] ?? '');
+// --- Ajout / Édition ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action      = $_POST['action'] ?? '';
+    if (in_array($action, ['add', 'edit'], true)) {
+        $nom         = trim($_POST['nom'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $color       = trim($_POST['color'] ?? '#3b82f6');
+        $actif       = isset($_POST['actif']) ? 1 : 0;
+        $id          = (int)($_POST['id'] ?? 0);
 
-[$page, $perPage, $offset, $sort, $dir] = array_values(listParams(20));
+        $description = $description !== '' ? $description : null;
 
-// --- Tri ---
+        // Validation couleur hex
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+            $color = '#3b82f6';
+        }
+
+        if ($nom !== '') {
+            try {
+                if ($action === 'add') {
+                    $pdo->prepare("INSERT INTO ecoles (nom, description, color, actif) VALUES (?, ?, ?, ?)")
+                        ->execute([$nom, $description, $color, $actif]);
+                    redirect('/ICEANOTES/pages/ecoles.php?ok=add');
+                } else {
+                    $pdo->prepare("UPDATE ecoles SET nom=?, description=?, color=?, actif=? WHERE id=?")
+                        ->execute([$nom, $description, $color, $actif, $id]);
+                    redirect('/ICEANOTES/pages/ecoles.php?ok=edit');
+                }
+            } catch (PDOException $e) {
+                $msg = t('ecole_nom') . " déjà utilisé.";
+            }
+        } else {
+            $msg = t('ecole_nom') . " requis.";
+        }
+    }
+}
+
+// --- Toggle actif ---
+if (isset($_GET['toggle'])) {
+    $pdo->prepare("UPDATE ecoles SET actif = 1 - actif WHERE id = ?")->execute([(int)$_GET['toggle']]);
+    redirect('/ICEANOTES/pages/ecoles.php?ok=toggle');
+}
+
+// --- Suppression ---
+if (isset($_GET['delete'])) {
+    try {
+        $pdo->prepare("DELETE FROM ecoles WHERE id = ?")->execute([(int)$_GET['delete']]);
+        redirect('/ICEANOTES/pages/ecoles.php?ok=delete');
+    } catch (PDOException $e) {
+        $msg = t('ecole_delete_blocked');
+    }
+}
+
+// --- Édition ? ---
+$editRow = null;
+if (isset($_GET['edit'])) {
+    $stmt = $pdo->prepare("SELECT * FROM ecoles WHERE id = ?");
+    $stmt->execute([(int)$_GET['edit']]);
+    $editRow = $stmt->fetch() ?: null;
+}
+
+// --- Liste ---
+[$page, $perPage, $offset, $search, $sort, $dir] = array_values(listParams(50));
+
+$sort = $sort ?: 'nom';
 $sortable = [
-    'etu'     => 'e.nom, e.prenom',
-    'niveau'  => 'p.ordre, p.nom',
-    'promo'   => 'p.annee, p.promo',
-    'filiere' => 'f.nom',
-    'module'  => 'm.nom',
-    'prof'    => 'u.nom, u.prenom',      // ← NOUVEAU
-    'type'    => 'nt.ordre, nt.nom',
-    'valeur'  => 'n.valeur',
-    'date'    => 'n.date_saisie',
+    'nom'     => 'ec.nom',
+    'filiere' => 'nb_filieres',
+    'actif'   => 'ec.actif',
 ];
-$orderBy = $sortable[$sort] ?? 'n.date_saisie DESC';
-if ($sort && isset($sortable[$sort])) $orderBy .= " $dir";
-else $orderBy = 'n.date_saisie DESC';
+if (!isset($sortable[$sort])) $sort = 'nom';
+$orderBy = $sortable[$sort] . " $dir";
 
-// --- Charger les écoles actives (pour détecter le mode école unique) ---
-$ecoleWhere = ["ec.actif = 1"];
-$ecoleParams = [];
-if (!$isSuperviseur) { $ecoleWhere[] = "m.professeur_id = ?"; $ecoleParams[] = $myId; }
-$ecoleWhereSql = 'WHERE ' . implode(' AND ', $ecoleWhere);
-
-$stmtEcoles = $pdo->prepare("
-    SELECT ec.id, ec.nom, ec.color, ec.actif
-    FROM ecoles ec
-    $ecoleWhereSql
-    GROUP BY ec.id, ec.nom, ec.color, ec.actif
-    ORDER BY ec.nom
-");
-$stmtEcoles->execute($ecoleParams);
-$ecoles = $stmtEcoles->fetchAll();
-
-// ============================================================================
-// 🎯 Forcer le filtre si une seule école active existe (AVANT header.php)
-// ============================================================================
-$singleEcoleMode = (count($ecoles) === 1);
-
-if ($singleEcoleMode) {
-    $onlyEcoleId = (int)$ecoles[0]['id'];
-    if ($filterEcole !== $onlyEcoleId) {
-        $filterEcole = $onlyEcoleId;
-        setcookie($COOKIE_ECOLE, (string)$onlyEcoleId, [
-            'expires'  => time() + $COOKIE_TTL,
-            'path'     => '/',
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ]);
-    }
-}
-
-// ============================================================================
-// HEADER (plus de setcookie possible après ce point)
-// ============================================================================
-require_once BASE_PATH . '/includes/header.php';
-
-// ============================================================================
-// WHERE + requêtes SQL
-// ============================================================================
-$where = ['1=1']; $params = [];
-if (!$isSuperviseur) { $where[] = "m.professeur_id = ?"; $params[] = $myId; }
+$where  = ['1=1'];
+$params = [];
 if ($search !== '') {
-    $where[] = "(e.nom LIKE ? OR e.prenom LIKE ? OR m.nom LIKE ? OR p.nom LIKE ? OR p.promo LIKE ?)";
-    $like = "%$search%";
-    array_push($params, $like, $like, $like, $like, $like);
+    $where[]  = "(ec.nom LIKE ? OR ec.description LIKE ?)";
+    $params[] = "%$search%";
+    $params[] = "%$search%";
 }
-if ($filterEcole)   { $where[] = "ec2.id = ?"; $params[] = $filterEcole; }
-if ($filterFiliere) { $where[] = "f.id = ?"; $params[] = $filterFiliere; }
-if ($filterNiveau)  { $where[] = "p.nom = ?"; $params[] = $filterNiveau; }
-if ($filterPromo)   { $where[] = "p.id = ?"; $params[] = $filterPromo; }
-if ($filterType)    { $where[] = "nt.id = ?"; $params[] = $filterType; }
 $whereSql = implode(' AND ', $where);
 
-// --- Total ---
-$stmt = $pdo->prepare("
-    SELECT COUNT(*) FROM notes n
-    JOIN etudiants e ON e.id = n.etudiant_id
-    JOIN promotions p ON p.id = e.promotion_id
-    JOIN filieres f ON f.id = p.filiere_id
-    JOIN ecoles ec2 ON ec2.id = f.ecole_id
-    JOIN modules m ON m.id = n.module_id
-    JOIN note_types nt ON nt.id = n.note_type_id
-    WHERE $whereSql
-");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM ecoles ec WHERE $whereSql");
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
-// --- Lignes (sans ecole ni date) ---
 $stmt = $pdo->prepare("
-    SELECT n.id, n.valeur, n.date_saisie,
-           e.nom AS etu_nom, e.prenom AS etu_prenom,
-           p.nom AS niveau, p.promo, p.annee,
-           f.nom AS filiere,
-           m.nom AS module,
-           nt.nom AS type_nom, nt.sur AS type_sur, nt.coef AS type_coef,
-           u.nom AS prof_nom, u.prenom AS prof_prenom
-    FROM notes n
-    JOIN etudiants e ON e.id = n.etudiant_id
-    JOIN promotions p ON p.id = e.promotion_id
-    JOIN filieres f ON f.id = p.filiere_id
-    JOIN ecoles ec2 ON ec2.id = f.ecole_id
-    JOIN modules m ON m.id = n.module_id
-    JOIN note_types nt ON nt.id = n.note_type_id
-    JOIN users u ON u.id = m.professeur_id
+    SELECT ec.*,
+           (SELECT COUNT(*) FROM filieres f WHERE f.ecole_id = ec.id) AS nb_filieres
+    FROM ecoles ec
     WHERE $whereSql
     ORDER BY $orderBy
     LIMIT $perPage OFFSET $offset
 ");
 $stmt->execute($params);
-$notes = $stmt->fetchAll();
+$ecoles = $stmt->fetchAll();
 
-// --- Listes pour les filtres ---
-$filieres  = $pdo->query("SELECT * FROM filieres ORDER BY nom")->fetchAll();
-$niveaux   = ['L1', 'L2', 'L3', 'Master'];
-$promotions = $pdo->query("
-    SELECT p.*, f.nom AS filiere FROM promotions p JOIN filieres f ON f.id = p.filiere_id
-    WHERE p.actif = 1 ORDER BY p.ordre, f.nom, p.annee
-")->fetchAll();
-$noteTypes = $pdo->query("SELECT * FROM note_types WHERE actif = 1 ORDER BY ordre, nom")->fetchAll();
-
-// ⚠️ $filterEcole N'EST PLUS inclus : le filtre école est géré par le header
-$hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo || $filterType;
+require_once BASE_PATH . '/includes/header.php';
 ?>
 
-<!-- ============================================================================ -->
-<!-- HTML                                                                          -->
-<!-- ============================================================================ -->
-
-<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-6 gap-3">
-    <div class="flex-1">
-        <h1 class="text-2xl font-bold text-gray-800">
-            <?= $isSuperviseur ? t('accueil_title') : t('accueil_title_prof') ?>
-        </h1>
-        <p class="text-sm text-gray-500 mt-0.5"><?= t('notes_total', ['n' => $total]) ?></p>
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-800"><?= t('ecoles_title') ?></h1>
+        <p class="text-sm text-gray-500"><?= t('ecoles_count', ['n' => $total]) ?></p>
     </div>
-
-    <a href="/ICEANOTES/pages/notes.php"
-       class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg text-center shrink-0">
-        <?= t('add_note') ?>
-    </a>
 </div>
 
+<?php if ($msg): ?><div class="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4"><?= e($msg) ?></div><?php endif; ?>
+<?php if (isset($_GET['ok'])): ?><div class="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4"><?= t('ok_' . $_GET['ok']) ?></div><?php endif; ?>
+
+<!-- Formulaire ajout / édition -->
+<form method="POST" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 grid sm:grid-cols-12 gap-3 items-start">
+    <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
+    <?php if ($editRow): ?><input type="hidden" name="id" value="<?= $editRow['id'] ?>"><?php endif; ?>
+
+    <div class="sm:col-span-3">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('ecole_nom')) ?></label>
+        <input type="text" name="nom" required placeholder="ICEA, ENSA…"
+               value="<?= $editRow ? e($editRow['nom']) : '' ?>"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+    </div>
+
+    <div class="sm:col-span-4">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('ecole_description')) ?></label>
+        <input type="text" name="description" placeholder="Institut Catholique…"
+               value="<?= $editRow ? e($editRow['description'] ?? '') : '' ?>"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+    </div>
+
+    <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1"><?= e(t('ecole_color')) ?></label>
+        <input type="color" name="color" value="<?= $editRow ? e($editRow['color']) : '#3b82f6' ?>"
+               class="w-full h-[38px] px-1 py-1 border border-gray-300 rounded-lg cursor-pointer">
+    </div>
+
+    <div class="sm:col-span-1">
+        <label class="block text-xs font-medium text-gray-600 mb-1">&nbsp;</label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer select-none px-2 py-2">
+            <input type="checkbox" name="actif" value="1" <?= (!$editRow || $editRow['actif']) ? 'checked' : '' ?>
+                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            <?= t('active') ?>
+        </label>
+    </div>
+
+    <div class="sm:col-span-1">
+        <label class="block text-xs font-medium text-gray-600 mb-1">&nbsp;</label>
+        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">
+            <?= $editRow ? t('save') : t('add') ?>
+        </button>
+    </div>
+
+    <?php if ($editRow): ?>
+        <a href="/ICEANOTES/pages/ecoles.php" class="text-sm text-gray-500 px-3 py-2 hover:underline text-center sm:col-span-12"><?= t('cancel') ?></a>
+    <?php endif; ?>
+</form>
+
 <!-- Filtres en live -->
-<form method="GET" id="filterForm" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row flex-wrap gap-3">
+<form method="GET" id="filterForm" class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-3">
     <input type="text" name="q" id="searchInput" value="<?= e($search) ?>"
            placeholder="<?= e(t('search')) ?>"
-           class="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm">
+           class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
 
-    <select name="filiere" id="filiereSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('filiere') ?></option>
-        <?php foreach ($filieres as $f): ?>
-            <option value="<?= $f['id'] ?>" <?= $filterFiliere == $f['id'] ? 'selected' : '' ?>>
-                <?= e($f['nom']) ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-
-    <select name="niveau" id="niveauSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('niveau') ?></option>
-        <?php foreach ($niveaux as $n): ?>
-            <option value="<?= $n ?>" <?= $filterNiveau === $n ? 'selected' : '' ?>>
-                <?= e($n) ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-
-    <select name="promo" id="promoSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('promotion_label') ?></option>
-        <?php foreach ($promotions as $p): ?>
-            <option value="<?= $p['id'] ?>" <?= $filterPromo == $p['id'] ? 'selected' : '' ?>>
-                <?= e($p['nom'] . ' — ' . ($p['promo'] ?? '') . ' (' . $p['annee'] . ')') ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-
-    <select name="type" id="typeSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-        <option value=""><?= t('type') ?></option>
-        <?php foreach ($noteTypes as $tp): ?>
-            <option value="<?= $tp['id'] ?>" <?= $filterType == $tp['id'] ? 'selected' : '' ?>>
-                <?= e($tp['nom']) ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-
-    <?php if ($hasFilters): ?>
-        <a href="/ICEANOTES/pages/accueil.php?per_page=<?= $perPage ?>"
+    <?php if ($search !== ''): ?>
+        <a href="/ICEANOTES/pages/ecoles.php?per_page=<?= $perPage ?>"
            class="text-sm text-red-500 hover:text-red-700 hover:underline self-center px-3 whitespace-nowrap">
             ✕ <?= t('reset') ?>
         </a>
     <?php endif; ?>
 </form>
 
+<!-- Tableau -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
     <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
-                    <th class="text-left px-4 py-3"><?= sortLink('etu', t('etudiant'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('niveau', t('niveau'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('promo', t('promo'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('filiere', t('filiere'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('module', t('module'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('prof', t('professeur'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('type', t('type'), $sort, $dir) ?></th>
-                    <th class="text-center px-4 py-3"><?= sortLink('valeur', t('note'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('nom', t('ecole_nom'), $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= t('ecole_color') ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('filiere', t('ecole_filieres_count'), $sort, $dir) ?></th>
+                    <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
+                    <th class="text-right px-4 py-3"><?= t('actions') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-            <?php if (empty($notes)): ?>
-                <tr><td colspan="8" class="text-center text-gray-400 py-8">—</td></tr>
-            <?php else: foreach ($notes as $n): ?>
-                <?php
-                    $sur20 = ((float)$n['valeur'] / (float)$n['type_sur']) * 20;
-                    $ok = $sur20 >= 10;
-                ?>
-                <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium text-gray-800"><?= e($n['etu_prenom'] . ' ' . $n['etu_nom']) ?></td>
-                    <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700"><?= e($n['niveau']) ?></span></td>
-                    <td class="px-4 py-3"><?= $n['promo'] ? e($n['promo']) : '<span class="text-gray-400 italic text-xs">(sans promo)</span>' ?></td>
-                    <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700"><?= e($n['filiere']) ?></span></td>
-                    <td class="px-4 py-3"><?= e($n['module']) ?></td>
-                    <td class="px-4 py-3 text-gray-500"><?= e($n['prof_prenom'] . ' ' . $n['prof_nom']) ?></td>
-                    <td class="px-4 py-3 text-center">
-                        <span class="inline-block px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700"><?= e($n['type_nom']) ?></span>
-                    </td>
-                    <td class="px-4 py-3 text-center font-bold <?= $ok ? 'text-green-600' : 'text-red-600' ?>">
-                        <?= number_format((float)$n['valeur'], 1) ?> / <?= (float)$n['type_sur'] ?>
-                        <?php if ((float)$n['type_coef'] != 1): ?>
-                            <span class="text-xs text-gray-400 block">×<?= (float)$n['type_coef'] ?></span>
+            <?php if (empty($ecoles)): ?>
+                <tr><td colspan="5" class="text-center text-gray-400 py-8">—</td></tr>
+            <?php else: foreach ($ecoles as $ec): ?>
+                <tr class="hover:bg-gray-50 transition <?= $ec['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
+                    <td class="px-4 py-3">
+                        <div class="font-medium"><?= e($ec['nom']) ?></div>
+                        <?php if (!empty($ec['description'])): ?>
+                            <div class="text-xs text-gray-500 mt-0.5"><?= e($ec['description']) ?></div>
                         <?php endif; ?>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center gap-1.5">
+                            <span class="w-4 h-4 rounded-full border border-gray-200"
+                                  style="background-color: <?= e($ec['color']) ?>;"></span>
+                            <code class="text-xs text-gray-500"><?= e($ec['color']) ?></code>
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center"><?= (int)$ec['nb_filieres'] ?></td>
+                    <td class="px-4 py-3 text-center">
+                        <a href="?toggle=<?= $ec['id'] ?>" title="<?= e($ec['actif'] ? t('deactivate') : t('activate')) ?>"
+                           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition
+                                  <?= $ec['actif'] ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-600 hover:bg-gray-300' ?>">
+                            <?= $ec['actif'] ? '✅ ' . t('active') : '❌ ' . t('inactive') ?>
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <?= actionButtons(
+                            '/ICEANOTES/pages/ecoles.php?edit=' . $ec['id'],
+                            '/ICEANOTES/pages/ecoles.php?delete=' . $ec['id'],
+                            '/ICEANOTES/pages/ecoles.php?toggle=' . $ec['id'],
+                            (bool)$ec['actif'],
+                            true,
+                            false
+                        ) ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>
@@ -277,7 +252,7 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
     </div>
 </div>
 
-<!-- Barre du bas : per_page + pagination -->
+<!-- Barre du bas -->
 <?php
     $pages = max(1, (int)ceil($total / $perPage));
     $buildPageUrl = function (int $p) use ($perPage) {
@@ -334,10 +309,6 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
 <script>
 (function () {
     const search  = document.getElementById('searchInput');
-    const filiere = document.getElementById('filiereSelect');
-    const niveau  = document.getElementById('niveauSelect');
-    const promo   = document.getElementById('promoSelect');
-    const type    = document.getElementById('typeSelect');
     const perPage = document.getElementById('perPageSelect');
 
     let searchTimeout = null;
@@ -357,20 +328,6 @@ $hasFilters = $search !== '' || $filterFiliere || $filterNiveau || $filterPromo 
             }, 400);
         });
     }
-
-    [filiere, niveau, promo, type].forEach(function (sel) {
-        if (!sel) return;
-        sel.addEventListener('change', function () {
-            const url = new URL(window.location.href);
-            if (sel.value === '') {
-                url.searchParams.delete(sel.name);
-            } else {
-                url.searchParams.set(sel.name, sel.value);
-            }
-            url.searchParams.delete('page');
-            window.location.href = url.toString();
-        });
-    });
 
     if (perPage) {
         perPage.addEventListener('change', function () {

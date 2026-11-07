@@ -63,9 +63,17 @@ return [
     'notes_total'       => ':n nota(s)',
     'add_note'          => '+ Añadir una nota',
 
-    // Escuelas (badges)
-    'ecole'             => 'Escuela',
-    'ecoles'            => 'Escuelas',
+    // Escuelas (badges + CRUD)
+    'ecole'                => 'Escuela',
+    'ecoles'               => 'Escuelas',
+    'ecoles_title'         => 'Escuelas',
+    'ecoles_count'         => ':n escuela(s)',
+    'ecole_nom'            => 'Nombre de la escuela',
+    'ecole_description'    => 'Descripción (opcional)',
+    'ecole_color'          => 'Color',
+    'ecole_add'            => 'Añadir una escuela',
+    'ecole_filieres_count' => 'Carreras',
+    'ecole_delete_blocked' => 'No se puede: hay carreras vinculadas a esta escuela.',
 
     // Carreras
     'filieres_title'    => 'Carreras',

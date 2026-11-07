@@ -63,9 +63,17 @@ return [
     'notes_total'       => ':n note(s)',
     'add_note'          => '+ Ajouter une note',
 
-    // Écoles (badges)
-    'ecole'             => 'École',
-    'ecoles'            => 'Écoles',
+    // Écoles (badges + CRUD)
+    'ecole'                => 'École',
+    'ecoles'               => 'Écoles',
+    'ecoles_title'         => 'Écoles',
+    'ecoles_count'         => ':n école(s)',
+    'ecole_nom'            => 'Nom de l\'école',
+    'ecole_description'    => 'Description (facultatif)',
+    'ecole_color'          => 'Couleur',
+    'ecole_add'            => 'Ajouter une école',
+    'ecole_filieres_count' => 'Filières',
+    'ecole_delete_blocked' => 'Impossible : des filières sont liées à cette école.',
 
     // Filières
     'filieres_title'    => 'Filières',
@@ -100,7 +108,7 @@ return [
     'prof_password'     => 'Mot de passe (défaut : icea)',
     'add_professeur'    => 'Ajouter un professeur',
 
-    // Modules (ex-Matières)
+    // Modules
     'modules_title'       => 'Modules',
     'modules_title_prof'  => 'Modules — mes modules',
     'modules_page_count'  => ':n module(s)',

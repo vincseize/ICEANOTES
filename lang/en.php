@@ -63,9 +63,17 @@ return [
     'notes_total'       => ':n grade(s)',
     'add_note'          => '+ Add a grade',
 
-    // Schools (badges)
-    'ecole'             => 'School',
-    'ecoles'            => 'Schools',
+    // Schools (badges + CRUD)
+    'ecole'                => 'School',
+    'ecoles'               => 'Schools',
+    'ecoles_title'         => 'Schools',
+    'ecoles_count'         => ':n school(s)',
+    'ecole_nom'            => 'School name',
+    'ecole_description'    => 'Description (optional)',
+    'ecole_color'          => 'Color',
+    'ecole_add'            => 'Add a school',
+    'ecole_filieres_count' => 'Programs',
+    'ecole_delete_blocked' => 'Cannot delete: programs are linked to this school.',
 
     // Programs
     'filieres_title'    => 'Programs',

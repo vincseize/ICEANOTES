@@ -156,12 +156,12 @@ if (isset($_GET['edit'])) {
 
 $sort = $sort ?: 'nom';
 $sortable = [
-    'nom'     => 'u.nom, u.prenom',           // ← tri principal (Nom Prénom)
-    'prenom'  => 'u.prenom, u.nom',           // ← NOUVEAU
-    'email'   => 'u.email',                   // ← NOUVEAU
-    'type'    => 't.label',                   // ← déjà présent
-    'modules' => 'nb_modules',                // ← NOUVEAU (alias)
-    'actif'   => 'u.actif',                   // ← NOUVEAU
+    'nom'     => 'u.nom, u.prenom',
+    'prenom'  => 'u.prenom, u.nom',
+    'email'   => 'u.email',
+    'type'    => 't.label',
+    'modules' => 'nb_modules',
+    'actif'   => 'u.actif',
 ];
 if (!isset($sortable[$sort])) $sort = 'nom';
 $orderBy = $sortable[$sort] . " $dir";
@@ -199,8 +199,8 @@ require_once BASE_PATH . '/includes/header.php';
 
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
     <div>
-        <h1 class="text-2xl font-bold text-gray-800">Professeurs</h1>
-        <p class="text-sm text-gray-500"><?= $total ?> utilisateur<?= $total > 1 ? 's' : '' ?></p>
+        <h1 class="text-2xl font-bold text-gray-800"><?= t('professeurs_title') ?></h1>
+        <p class="text-sm text-gray-500"><?= t('professeurs_count', ['n' => $total]) ?></p>
     </div>
 </div>
 
@@ -274,7 +274,7 @@ require_once BASE_PATH . '/includes/header.php';
                     <th class="text-left px-4 py-3"><?= sortLink('prenom', t('prof_prenom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('nom', t('prof_nom'), $sort, $dir) ?></th>
                     <th class="text-left px-4 py-3"><?= sortLink('email', t('prof_email'), $sort, $dir) ?></th>
-                    <th class="text-left px-4 py-3"><?= sortLink('type', 'Type', $sort, $dir) ?></th>
+                    <th class="text-left px-4 py-3"><?= sortLink('type', t('type'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('modules', t('modules_count'), $sort, $dir) ?></th>
                     <th class="text-center px-4 py-3"><?= sortLink('actif', t('active'), $sort, $dir) ?></th>
                     <th class="text-right px-4 py-3"><?= t('actions') ?></th>
@@ -297,9 +297,7 @@ require_once BASE_PATH . '/includes/header.php';
                     $canToggle = canToggleUser($u);
                 ?>
                 <tr class="hover:bg-gray-50 transition <?= $u['actif'] ? '' : 'opacity-50 bg-gray-50' ?>">
-                    <td class="px-4 py-3 font-medium">
-                        <?= e($u['prenom']) ?>
-                    </td>
+                    <td class="px-4 py-3 font-medium"><?= e($u['prenom']) ?></td>
                     <td class="px-4 py-3 font-medium">
                         <?= e($u['nom']) ?>
                         <?php if ($u['protected']): ?>
